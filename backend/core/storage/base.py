@@ -2,6 +2,9 @@
 
 Implementations: local filesystem (development), S3, Azure Blob. Credentials
 stay server-side; the browser receives a signed URL at most.
+
+Selection by configuration lives in `app.core.storage` — the composition root —
+so this module stays free of application settings.
 """
 
 from __future__ import annotations

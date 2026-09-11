@@ -90,9 +90,16 @@ Working today:
 | `GET /api/v1/health` | liveness, dependency-free |
 | `GET /api/v1/ready` | pings Postgres + Redis, 503 when degraded |
 | `POST/GET /api/v1/projects` | full slice through service, ORM and migration |
-| `alembic upgrade head` | extensions + organizations, users, projects |
-| `arq` worker | boots and registers 7 task entry points |
-| `ruff` + `mypy --strict` + `pytest` | 29 tests, all green |
+| `POST /api/v1/documents/upload` | validate, store, queue (202) |
+| `GET /api/v1/documents[/{id}][/chunks]` | ingestion state and chunk provenance |
+| `alembic upgrade head` | extensions, identity, projects, documents, chunks |
+| `arq` worker | ingests PDF, TXT and Markdown end to end |
+| `ruff` + `mypy --strict` + `pytest` | 79 tests, all green |
+
+Ingestion pipeline (Phase 2): upload -> validate -> store -> parse -> chunk.
+Chunks carry page and character offsets, so slicing the source by a chunk's
+offsets returns its text — the contract citations depend on. Embeddings
+(Phase 3) and keyword indexing (Phase 4) are not wired yet.
 
 Every other route still raises `NotImplementedError`. ORM modules for later
 phases exist but are not registered in `Base.metadata`, so migrations never

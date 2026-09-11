@@ -69,6 +69,15 @@ def configure_logging(settings: Settings) -> None:
         else structlog.dev.ConsoleRenderer()
     )
 
+    # Windows consoles default to a legacy codepage (cp1252), and writing a
+    # character outside it raises *inside* the logging handler — losing the log
+    # line and emitting a traceback instead. Ingested documents routinely
+    # contain such characters, so pin the log streams to UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,

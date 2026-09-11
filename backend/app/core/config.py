@@ -99,6 +99,18 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str | None = None
     EMBEDDING_DIMENSIONS: int = 1536
 
+    # --- ingestion (spec section 10) ---
+    MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024
+    ALLOWED_UPLOAD_MIME_TYPES: set[str] = Field(
+        default_factory=lambda: {
+            "application/pdf",
+            "text/plain",
+            "text/markdown",
+        }
+    )
+    CHUNK_SIZE_CHARS: int = 1200
+    CHUNK_OVERLAP_CHARS: int = 150
+
     # --- object storage ---
     OBJECT_STORAGE_BACKEND: ObjectStorageBackend = ObjectStorageBackend.LOCAL
     OBJECT_STORAGE_ENDPOINT: str | None = None
