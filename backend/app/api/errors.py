@@ -17,7 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import Settings
 from app.core.context import current_context
-from app.core.errors import AppError, ErrorCode
+from app.core.errors import DomainError, ErrorCode, status_code_for
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -48,10 +48,19 @@ def _envelope(
 def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
     """Install handlers on the application. Called from `create_app()`."""
 
-    @app.exception_handler(AppError)
-    async def _app_error(_request: Request, exc: AppError) -> JSONResponse:
-        logger.warning("app.error", code=str(exc.code), message=exc.message)
-        return _envelope(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
+    @app.exception_handler(DomainError)
+    async def _domain_error(_request: Request, exc: DomainError) -> JSONResponse:
+        """Handles `AppError` and anything raised from `core` alike, so an
+        error escaping a pipeline stage still gets a code, not a bare 500."""
+        status_code = status_code_for(exc)
+        log = logger.warning if status_code < 500 else logger.error
+        log(
+            "app.error",
+            code=str(exc.code),
+            message=exc.message,
+            status_code=status_code,
+        )
+        return _envelope(exc.code, exc.message, status_code=status_code, details=exc.details)
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:

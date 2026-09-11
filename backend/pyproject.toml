@@ -10,6 +10,8 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "python-multipart>=0.0.12",      # multipart uploads (POST /documents/upload)
+    # --- document parsing ---
+    "pypdf>=5.1",                     # BSD; PyMuPDF is AGPL and unsuitable here
     # --- config & validation ---
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
@@ -37,6 +39,7 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "pre-commit>=4.0",
+    "reportlab>=4.2",              # generates real PDFs for parser tests
 ]
 # Provider adapters are optional so the core platform never hard-depends on one vendor.
 anthropic = ["anthropic>=0.40"]
@@ -112,9 +115,9 @@ exclude = "^alembic/versions/"
 module = ["tests.*"]
 disallow_untyped_defs = false
 
-# asyncpg ships no py.typed marker.
+# Neither asyncpg nor reportlab ships a py.typed marker.
 [[tool.mypy.overrides]]
-module = ["asyncpg.*"]
+module = ["asyncpg.*", "reportlab.*"]
 ignore_missing_imports = true
 
 # --------------------------------------------------------------------------

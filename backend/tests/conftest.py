@@ -95,8 +95,18 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 @pytest.fixture
 async def clean_projects(client: AsyncClient) -> AsyncIterator[None]:
-    """Remove projects created by a test, leaving the seeded principal intact."""
+    """Isolate a test from project rows left by any other test.
+
+    Truncating on both sides matters: assertions about the full project
+    listing would otherwise depend on test execution order. The cascade also
+    removes dependent documents and chunks.
+    """
+    await _truncate_projects()
     yield
+    await _truncate_projects()
+
+
+async def _truncate_projects() -> None:
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
         await session.execute(text("TRUNCATE TABLE projects CASCADE"))

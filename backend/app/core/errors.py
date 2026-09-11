@@ -1,61 +1,48 @@
-"""Explicit error taxonomy.
+"""HTTP-shaped errors.
 
-Every pipeline stage fails with a named code (spec section 47) so that failures
-are attributable in traces and in failure analysis, rather than surfacing as an
-anonymous 500.
+The taxonomy itself lives in `core.errors`; this module adds the one thing
+that is genuinely transport-specific — the status code — and re-exports the
+domain errors so application code has a single import site.
 """
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Any
 
+from core.errors import (
+    DomainError,
+    ErrorCode,
+    PipelineError,
+    ProviderError,
+    StorageError,
+)
 
-class ErrorCode(StrEnum):
-    """Stable, machine-readable failure codes. Values appear in traces and logs."""
+# Domain errors carry no status code of their own. Codes raised deep in the
+# pipeline still deserve an honest status, so map the ones with a clear HTTP
+# meaning; anything unmapped is a server fault.
+DEFAULT_STATUS_CODE = 500
 
-    # --- pipeline stages (spec section 47) ---
-    INGESTION_FAILED = "INGESTION_FAILED"
-    PARSING_FAILED = "PARSING_FAILED"
-    CHUNKING_FAILED = "CHUNKING_FAILED"
-    EMBEDDING_FAILED = "EMBEDDING_FAILED"
-    INDEXING_FAILED = "INDEXING_FAILED"
-    RETRIEVAL_FAILED = "RETRIEVAL_FAILED"
-    RERANKING_FAILED = "RERANKING_FAILED"
-    FUSION_FAILED = "FUSION_FAILED"
-    ROUTING_FAILED = "ROUTING_FAILED"
-    GENERATION_FAILED = "GENERATION_FAILED"
-    VERIFICATION_FAILED = "VERIFICATION_FAILED"
-    EVALUATION_FAILED = "EVALUATION_FAILED"
-    EXPERIMENT_FAILED = "EXPERIMENT_FAILED"
-    BENCHMARK_FAILED = "BENCHMARK_FAILED"
-
-    # --- model providers ---
-    MODEL_TIMEOUT = "MODEL_TIMEOUT"
-    MODEL_RATE_LIMIT = "MODEL_RATE_LIMIT"
-    MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"
-    MODEL_CONTEXT_EXCEEDED = "MODEL_CONTEXT_EXCEEDED"
-    PROVIDER_NOT_CONFIGURED = "PROVIDER_NOT_CONFIGURED"
-
-    # --- transport / application ---
-    VALIDATION_ERROR = "VALIDATION_ERROR"
-    NOT_FOUND = "NOT_FOUND"
-    CONFLICT = "CONFLICT"
-    UNAUTHENTICATED = "UNAUTHENTICATED"
-    FORBIDDEN = "FORBIDDEN"
-    RATE_LIMITED = "RATE_LIMITED"
-    STORAGE_FAILED = "STORAGE_FAILED"
-    INTERNAL_ERROR = "INTERNAL_ERROR"
+_STATUS_BY_CODE: dict[ErrorCode, int] = {
+    ErrorCode.MODEL_RATE_LIMIT: 429,
+    ErrorCode.MODEL_TIMEOUT: 504,
+    ErrorCode.MODEL_UNAVAILABLE: 502,
+    ErrorCode.MODEL_CONTEXT_EXCEEDED: 422,
+    ErrorCode.PROVIDER_NOT_CONFIGURED: 503,
+    ErrorCode.UNSUPPORTED_MEDIA_TYPE: 415,
+    ErrorCode.PAYLOAD_TOO_LARGE: 413,
+    ErrorCode.VALIDATION_ERROR: 422,
+    ErrorCode.NOT_FOUND: 404,
+    ErrorCode.CONFLICT: 409,
+    ErrorCode.UNAUTHENTICATED: 401,
+    ErrorCode.FORBIDDEN: 403,
+    ErrorCode.RATE_LIMITED: 429,
+}
 
 
-class AppError(Exception):
-    """Base class for every error the application raises deliberately.
+class AppError(DomainError):
+    """A domain error with an explicit HTTP status."""
 
-    `details` must never carry secrets — it is serialised into API responses.
-    """
-
-    code: ErrorCode = ErrorCode.INTERNAL_ERROR
-    status_code: int = 500
+    status_code: int = DEFAULT_STATUS_CODE
 
     def __init__(
         self,
@@ -65,16 +52,9 @@ class AppError(Exception):
         status_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message)
-        self.message = message
-        if code is not None:
-            self.code = code
+        super().__init__(message, code=code, details=details)
         if status_code is not None:
             self.status_code = status_code
-        self.details = details or {}
-
-
-# --- transport-shaped errors ---------------------------------------------
 
 
 class NotFoundError(AppError):
@@ -107,42 +87,41 @@ class RateLimitedError(AppError):
     status_code = 429
 
 
-# --- pipeline-shaped errors ----------------------------------------------
+class UnsupportedMediaTypeError(AppError):
+    code = ErrorCode.UNSUPPORTED_MEDIA_TYPE
+    status_code = 415
 
 
-class PipelineError(AppError):
-    """Raised by a stage in the AI pipeline. Always recorded on the trace."""
-
-    status_code = 500
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: ErrorCode,
-        stage: str,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, details=details)
-        self.stage = stage
+class PayloadTooLargeError(AppError):
+    code = ErrorCode.PAYLOAD_TOO_LARGE
+    status_code = 413
 
 
-class ProviderError(AppError):
-    """Raised by a model provider adapter. Never include the API key."""
+def status_code_for(error: DomainError) -> int:
+    """Status for any domain error, including ones raised deep in `core`.
 
-    status_code = 502
+    An explicit `status_code` on the error wins; otherwise the code decides.
+    """
+    explicit = getattr(error, "status_code", None)
+    if explicit is not None:
+        return int(explicit)
+    return _STATUS_BY_CODE.get(error.code, DEFAULT_STATUS_CODE)
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: ErrorCode,
-        provider: str,
-        model: str | None = None,
-        retryable: bool = False,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, details=details)
-        self.provider = provider
-        self.model = model
-        self.retryable = retryable
+
+__all__ = [
+    "AppError",
+    "ConflictError",
+    "DomainError",
+    "ErrorCode",
+    "ForbiddenError",
+    "NotFoundError",
+    "PayloadTooLargeError",
+    "PipelineError",
+    "ProviderError",
+    "RateLimitedError",
+    "StorageError",
+    "UnauthenticatedError",
+    "UnsupportedMediaTypeError",
+    "ValidationError",
+    "status_code_for",
+]

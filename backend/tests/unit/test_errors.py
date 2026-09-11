@@ -7,10 +7,12 @@ import pytest
 from app.core.errors import (
     AppError,
     ConflictError,
+    DomainError,
     ErrorCode,
     NotFoundError,
     PipelineError,
     ProviderError,
+    status_code_for,
 )
 
 pytestmark = pytest.mark.unit
@@ -55,7 +57,21 @@ def test_provider_error_marks_retryability() -> None:
         retryable=True,
     )
     assert error.retryable is True
-    assert error.status_code == 502
+    assert error.provider == "anthropic"
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (ProviderError("slow", code=ErrorCode.MODEL_TIMEOUT, provider="p"), 504),
+        (ProviderError("429", code=ErrorCode.MODEL_RATE_LIMIT, provider="p"), 429),
+        (PipelineError("boom", code=ErrorCode.PARSING_FAILED, stage="parsing"), 500),
+        (NotFoundError("missing"), 404),
+    ],
+)
+def test_core_errors_map_to_honest_statuses(error: DomainError, expected: int) -> None:
+    """An error raised deep in the pipeline still gets a meaningful status."""
+    assert status_code_for(error) == expected
 
 
 def test_details_default_to_empty_rather_than_none() -> None:

@@ -20,6 +20,7 @@ discarded.
 | Spec | Implementation | Reason |
 |---|---|---|
 | `apps/api` + root `core/`, `models/`, … (§49) | All Python under `backend/` keeping those package names | One `pyproject.toml`, venv, test suite and image; matches the existing `backend/` + `frontend/` split |
+| PDF library unspecified | `pypdf` | BSD licensed and pure Python; PyMuPDF is AGPL and unsuitable for this project |
 | Background workers unspecified (§46) | `arq` | Async-native and Redis-backed, so it shares the event loop and connection pool with FastAPI; Celery would add a second concurrency model |
 | Host Postgres port 5432 | 5433 by default, `POSTGRES_PORT` overridable | 5432 was already bound on the development machine |
 
@@ -73,18 +74,52 @@ so enabling real auth changes only `get_current_principal`.
 project in another organization, so the API does not disclose which project IDs
 exist.
 
-## 6. Missing infrastructure (next phases)
+## 6. What Phase 2 delivered
+
+The ingestion pipeline (§67): upload -> validate -> store -> parse -> chunk.
+
+- **Layering correction** — the error taxonomy moved to `core/errors.py`, since
+  a failing pipeline stage must be attributable whether it ran in a request, a
+  worker or a script. `app/core/errors.py` now adds only the HTTP status, via
+  an explicit code-to-status map. Storage backend selection moved to
+  `app/core/storage.py`: it reads `Settings`, so it belongs in the composition
+  root. `core/` imports nothing from `app/`.
+- **Parsers** — `pypdf` for PDF (one block per page), plus text and Markdown,
+  behind a registry keyed on MIME type. DOCX and PPTX register without any
+  other module changing.
+- **Chunking** — deterministic recursive character splitting with overlap,
+  cutting on the widest natural boundary that fits. Re-ingesting a document
+  reproduces identical boundaries, so citations stay stable.
+- **Provenance** — every chunk carries page and character offsets. Slicing the
+  source by those offsets returns the chunk text; this is asserted directly.
+- **Validation** — media type resolved from the extension in preference to the
+  client's claim, size enforced while streaming, content hashed for
+  per-project deduplication (409 names the existing document).
+- **Idempotency** — a re-run clears prior chunks first, so arq's retries
+  converge instead of tripping the `(document_id, ordinal)` constraint.
+- **Logging** — log streams pinned to UTF-8. On a legacy Windows codepage, a
+  document containing non-Latin text previously raised inside the logging
+  handler, losing the line and emitting a traceback.
+
+Token counts are an explicit estimate (`HeuristicTokenCounter`) because no
+embedding model is configured yet; Phase 3 registers the real tokenizer behind
+the same protocol.
+
+## 7. Missing infrastructure (next phases)
 
 | Need | Phase |
 |---|---|
-| Object storage implementation (local/S3) | 2 |
-| Parser, chunker, ingestion worker | 2 |
+| S3 / Azure object storage backends | when deployed |
+| DOCX and PPTX parsers, OCR for scanned pages | 2 (follow-up) |
 | Embedding provider and pgvector index | 3 |
 | BM25 / Postgres FTS index | 4 |
 | Model provider adapters and registry | 7 |
 | Trace persistence and SSE streaming | 8 |
 | Real authentication (`AUTH_MODE=jwt`) | not yet scheduled |
 
-ORM modules for these exist under `backend/app/models/` but are deliberately
-not registered in `Base.metadata`; a model joins the metadata in the phase that
+External `DataSource` connectors remain deferred: documents arrive only by
+direct upload, so a document carries no `source_id` yet.
+
+ORM modules for the remaining entities exist under `backend/app/models/` but
+are deliberately not registered in `Base.metadata`; a model joins the metadata in the phase that
 gives it real columns, so migrations never create half-designed tables.
