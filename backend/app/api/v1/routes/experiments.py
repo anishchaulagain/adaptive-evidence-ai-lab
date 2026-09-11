@@ -22,9 +22,7 @@ async def create_experiment(
 
 
 @router.get("", response_model=list[ExperimentRead])
-async def list_experiments(
-    principal: PrincipalDep, session: SessionDep
-) -> list[ExperimentRead]:
+async def list_experiments(principal: PrincipalDep, session: SessionDep) -> list[ExperimentRead]:
     raise NotImplementedError
 
 

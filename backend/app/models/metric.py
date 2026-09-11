@@ -10,4 +10,3 @@ class MetricRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     stage, condition)."""
 
     __tablename__ = "metric_records"
-

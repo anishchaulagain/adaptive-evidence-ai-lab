@@ -20,9 +20,7 @@ async def create_evaluation(
 
 
 @router.get("", response_model=list[EvaluationRunRead])
-async def list_evaluations(
-    principal: PrincipalDep, session: SessionDep
-) -> list[EvaluationRunRead]:
+async def list_evaluations(principal: PrincipalDep, session: SessionDep) -> list[EvaluationRunRead]:
     raise NotImplementedError
 
 

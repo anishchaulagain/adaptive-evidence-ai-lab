@@ -11,9 +11,7 @@ router = APIRouter(prefix="/benchmarks", tags=["benchmarks"])
 
 
 @router.get("", response_model=list[BenchmarkRunRead])
-async def list_benchmarks(
-    principal: PrincipalDep, session: SessionDep
-) -> list[BenchmarkRunRead]:
+async def list_benchmarks(principal: PrincipalDep, session: SessionDep) -> list[BenchmarkRunRead]:
     raise NotImplementedError
 
 

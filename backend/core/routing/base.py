@@ -23,6 +23,4 @@ class RoutingDecision:
 
 
 class ModelRouter(Protocol):
-    def route(
-        self, analysis: QueryAnalysis, evidence: EvidenceAssessment
-    ) -> RoutingDecision: ...
+    def route(self, analysis: QueryAnalysis, evidence: EvidenceAssessment) -> RoutingDecision: ...

@@ -10,4 +10,3 @@ class Document(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     ingestion_status, error_code, metadata_, storage_key."""
 
     __tablename__ = "documents"
-

@@ -9,4 +9,3 @@ class DataSource(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     """Columns: name, kind, connection_config, status, last_synced_at, stats."""
 
     __tablename__ = "data_sources"
-

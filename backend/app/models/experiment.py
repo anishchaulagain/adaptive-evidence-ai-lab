@@ -15,4 +15,3 @@ class ExperimentRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """Columns: experiment_id, condition, evaluation_run_id, status, results."""
 
     __tablename__ = "experiment_runs"
-

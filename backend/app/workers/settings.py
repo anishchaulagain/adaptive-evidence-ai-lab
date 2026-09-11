@@ -9,7 +9,7 @@ experiments, benchmarks) run here so HTTP requests never block
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from arq.connections import RedisSettings
 
@@ -38,7 +38,7 @@ def _redis_settings(settings: Settings | None = None) -> RedisSettings:
 class WorkerSettings:
     """Entry point discovered by the `arq` CLI."""
 
-    functions = TASK_FUNCTIONS
+    functions: ClassVar[list[Any]] = TASK_FUNCTIONS
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _redis_settings()

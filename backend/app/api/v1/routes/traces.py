@@ -13,8 +13,6 @@ router = APIRouter(prefix="/traces", tags=["traces"])
 
 
 @router.get("/{trace_id}", response_model=TraceRead)
-async def get_trace(
-    trace_id: UUID, principal: PrincipalDep, session: SessionDep
-) -> TraceRead:
+async def get_trace(trace_id: UUID, principal: PrincipalDep, session: SessionDep) -> TraceRead:
     """Return the full execution trace: stages, timings, tokens, cost, errors."""
     raise NotImplementedError

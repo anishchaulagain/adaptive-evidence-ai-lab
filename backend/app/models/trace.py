@@ -20,4 +20,3 @@ class TraceSpan(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """
 
     __tablename__ = "trace_spans"
-

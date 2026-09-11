@@ -26,6 +26,14 @@ class LogFormat(StrEnum):
     JSON = "json"
 
 
+class AuthMode(StrEnum):
+    """Phase 1 runs with authentication disabled (spec section 43: do not
+    over-engineer multi-tenancy initially). `JWT` is wired in a later phase."""
+
+    DISABLED = "disabled"
+    JWT = "jwt"
+
+
 class VectorStoreBackend(StrEnum):
     PGVECTOR = "pgvector"
     QDRANT = "qdrant"
@@ -63,6 +71,9 @@ class Settings(BaseSettings):
     # --- logging / observability (spec section 48) ---
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: LogFormat = LogFormat.CONSOLE
+
+    # --- auth ---
+    AUTH_MODE: AuthMode = AuthMode.DISABLED
 
     # --- api ---
     API_V1_PREFIX: str = "/api/v1"
@@ -123,6 +134,8 @@ def validate_runtime_settings(settings: Settings) -> None:
         problems.append("DEBUG must be false in production")
     if settings.LOG_FORMAT is not LogFormat.JSON:
         problems.append("LOG_FORMAT must be 'json' in production")
+    if settings.AUTH_MODE is AuthMode.DISABLED:
+        problems.append("AUTH_MODE must not be 'disabled' in production")
     if problems:
         raise RuntimeError("Unsafe production configuration: " + "; ".join(problems))
 
@@ -130,4 +143,4 @@ def validate_runtime_settings(settings: Settings) -> None:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Cached settings accessor. Override via dependency injection in tests."""
-    return Settings()  # type: ignore[call-arg]  # values come from the environment
+    return Settings()

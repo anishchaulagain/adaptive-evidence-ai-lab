@@ -13,9 +13,9 @@ from uuid import UUID
 from fastapi import Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings, get_settings
-from app.core.context import bind_context
-from app.core.security import Principal
+from app.core.config import AuthMode, Settings, get_settings
+from app.core.errors import UnauthenticatedError
+from app.core.security import DEV_PRINCIPAL, Principal, decode_access_token
 from app.db.session import get_sessionmaker
 
 
@@ -32,27 +32,45 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
 
 
 async def get_current_principal(
+    settings: Annotated[Settings, Depends(get_settings)],
     authorization: Annotated[str | None, Header()] = None,
 ) -> Principal:
-    """Resolve the authenticated caller from the Authorization header."""
-    raise NotImplementedError
+    """Resolve the authenticated caller.
 
-
-async def get_project_scope(
-    project_id: UUID,
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> UUID:
-    """Verify the principal may access `project_id` and bind it to the context.
-
-    Spec section 42: project isolation is enforced here, not in each route.
+    Phase 1 runs with `AUTH_MODE=disabled` and returns a fixed development
+    principal, seeded at startup. `validate_runtime_settings()` refuses to boot
+    production in that mode, so this cannot ship by accident.
     """
-    raise NotImplementedError
+    if settings.AUTH_MODE is AuthMode.DISABLED:
+        return DEV_PRINCIPAL
+
+    if authorization is None or not authorization.lower().startswith("bearer "):
+        raise UnauthenticatedError("Missing or malformed Authorization header.")
+    return decode_access_token(authorization.split(" ", 1)[1])
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 PrincipalDep = Annotated[Principal, Depends(get_current_principal)]
+
+
+async def get_project_scope(
+    project_id: UUID,
+    principal: PrincipalDep,
+    session: SessionDep,
+) -> UUID:
+    """Verify the principal may access `project_id`.
+
+    Spec section 42: project isolation is enforced here, not in each route.
+    Raises `NotFoundError` — never `ForbiddenError` — for a project in another
+    organization, so the API does not leak which project IDs exist.
+    """
+    from app.services.project_service import ProjectService
+
+    project = await ProjectService(session).get(project_id, principal)
+    return project.id
+
+
 ProjectScopeDep = Annotated[UUID, Depends(get_project_scope)]
 
 __all__ = [
@@ -60,7 +78,6 @@ __all__ = [
     "ProjectScopeDep",
     "SessionDep",
     "SettingsDep",
-    "bind_context",
     "get_current_principal",
     "get_db_session",
     "get_project_scope",

@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import Settings
@@ -29,9 +29,9 @@ def _envelope(
     *,
     status_code: int,
     details: dict[str, Any] | None = None,
-) -> ORJSONResponse:
+) -> JSONResponse:
     ctx = current_context()
-    return ORJSONResponse(
+    return JSONResponse(
         status_code=status_code,
         content={
             "error": {
@@ -49,16 +49,12 @@ def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
     """Install handlers on the application. Called from `create_app()`."""
 
     @app.exception_handler(AppError)
-    async def _app_error(_request: Request, exc: AppError) -> ORJSONResponse:
+    async def _app_error(_request: Request, exc: AppError) -> JSONResponse:
         logger.warning("app.error", code=str(exc.code), message=exc.message)
-        return _envelope(
-            exc.code, exc.message, status_code=exc.status_code, details=exc.details
-        )
+        return _envelope(exc.code, exc.message, status_code=exc.status_code, details=exc.details)
 
     @app.exception_handler(RequestValidationError)
-    async def _validation_error(
-        _request: Request, exc: RequestValidationError
-    ) -> ORJSONResponse:
+    async def _validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
         return _envelope(
             ErrorCode.VALIDATION_ERROR,
             "Request validation failed.",
@@ -67,14 +63,12 @@ def register_exception_handlers(app: FastAPI, settings: Settings) -> None:
         )
 
     @app.exception_handler(StarletteHTTPException)
-    async def _http_error(
-        _request: Request, exc: StarletteHTTPException
-    ) -> ORJSONResponse:
+    async def _http_error(_request: Request, exc: StarletteHTTPException) -> JSONResponse:
         code = ErrorCode.NOT_FOUND if exc.status_code == 404 else ErrorCode.INTERNAL_ERROR
         return _envelope(code, str(exc.detail), status_code=exc.status_code)
 
     @app.exception_handler(Exception)
-    async def _unhandled(_request: Request, exc: Exception) -> ORJSONResponse:
+    async def _unhandled(_request: Request, exc: Exception) -> JSONResponse:
         # Log the traceback; never leak internals to the client in production.
         logger.exception("unhandled.exception")
         message = str(exc) if settings.DEBUG else "An internal error occurred."

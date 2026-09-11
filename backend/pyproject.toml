@@ -10,7 +10,6 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "python-multipart>=0.0.12",      # multipart uploads (POST /documents/upload)
-    "orjson>=3.10",
     # --- config & validation ---
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
@@ -79,15 +78,18 @@ select = [
     "C4",        # comprehensions
     "T20",       # no print()  — use structured logging (spec section 48)
     "SIM",       # simplify
-    "TCH",       # type-checking imports
     "RUF",
 ]
 ignore = [
     "B008",      # FastAPI Depends() in defaults is idiomatic
 ]
+# TC00x (typing-only imports) is deliberately not selected: FastAPI,
+# Pydantic and SQLAlchemy resolve annotations at runtime, so moving those
+# imports into TYPE_CHECKING blocks breaks dependency and column resolution.
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
+# Generated migrations: the template imports are unconditional by design.
 "alembic/versions/*" = ["N999", "E501"]
 
 [tool.ruff.lint.isort]
@@ -109,6 +111,11 @@ exclude = "^alembic/versions/"
 [[tool.mypy.overrides]]
 module = ["tests.*"]
 disallow_untyped_defs = false
+
+# asyncpg ships no py.typed marker.
+[[tool.mypy.overrides]]
+module = ["asyncpg.*"]
+ignore_missing_imports = true
 
 # --------------------------------------------------------------------------
 # pytest
