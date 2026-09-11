@@ -14,4 +14,3 @@ class Chunk(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     """
 
     __tablename__ = "chunks"
-

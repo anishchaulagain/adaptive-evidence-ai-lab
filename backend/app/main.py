@@ -11,16 +11,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.errors import register_exception_handlers
 from app.api.v1.router import api_router
-from app.core.config import Settings, get_settings, validate_runtime_settings
+from app.core.config import AuthMode, Settings, get_settings, validate_runtime_settings
 from app.core.logging import configure_logging, get_logger
-from app.db.session import dispose_engine, init_engine
+from app.db.bootstrap import ensure_dev_principal
+from app.db.session import dispose_engine, get_sessionmaker, init_engine
 from app.middleware.access_log import access_log_middleware
 from app.middleware.request_context import request_context_middleware
+from app.workers.queue import close_queue, init_queue
 
 logger = get_logger(__name__)
 
@@ -30,14 +31,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Own the lifecycle of shared resources (database, cache, queue)."""
     settings: Settings = app.state.settings
     init_engine(settings)
+    await init_queue(settings)
+
+    if settings.AUTH_MODE is AuthMode.DISABLED:
+        await ensure_dev_principal(get_sessionmaker())
+
     logger.info(
         "application.startup",
         environment=str(settings.ENVIRONMENT),
         version=settings.VERSION,
+        auth_mode=str(settings.AUTH_MODE),
     )
     try:
         yield
     finally:
+        await close_queue()
         await dispose_engine()
         logger.info("application.shutdown")
 
@@ -52,7 +60,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title=settings.PROJECT_NAME,
         version=settings.VERSION,
         lifespan=lifespan,
-        default_response_class=ORJSONResponse,
         # OpenAPI is served only outside production (spec section 42).
         docs_url=None if settings.is_production else "/docs",
         redoc_url=None if settings.is_production else "/redoc",

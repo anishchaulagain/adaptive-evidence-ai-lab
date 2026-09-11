@@ -10,4 +10,3 @@ class Query(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     answer, citations, trace_id, status, error_code."""
 
     __tablename__ = "queries"
-

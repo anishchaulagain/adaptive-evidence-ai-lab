@@ -10,4 +10,3 @@ class BenchmarkRun(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     started_at, finished_at, results."""
 
     __tablename__ = "benchmark_runs"
-

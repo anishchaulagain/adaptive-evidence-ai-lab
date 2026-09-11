@@ -35,7 +35,7 @@ revision: ## Autogenerate a migration: make revision m="add chunks"
 	alembic revision --autogenerate -m "$(m)"
 
 run: ## Run the API with reload
-	uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-access-log
 
 worker: ## Run the background worker
 	arq app.workers.settings.WorkerSettings

@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-
-T = TypeVar("T")
 
 
 class APIModel(BaseModel):
@@ -46,7 +44,7 @@ class ErrorResponse(APIModel):
     error: ErrorDetail
 
 
-class Page(APIModel, Generic[T]):
+class Page[T](APIModel):
     """Cursor-free offset pagination; sufficient for a research console."""
 
     items: list[T]

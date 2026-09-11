@@ -8,7 +8,8 @@ services:
       POSTGRES_PASSWORD: aelab
       POSTGRES_DB: aelab
     ports:
-      - "5432:5432"
+      # Host port is overridable: 5432 is often taken by another project.
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -22,7 +23,7 @@ services:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:

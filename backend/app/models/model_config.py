@@ -10,4 +10,3 @@ class ModelConfig(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     cost_per_output_token, context_window, capabilities, is_enabled."""
 
     __tablename__ = "model_configs"
-

@@ -27,7 +27,5 @@ async def list_sources(principal: PrincipalDep, session: SessionDep) -> list[Sou
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_source(
-    source_id: UUID, principal: PrincipalDep, session: SessionDep
-) -> None:
+async def delete_source(source_id: UUID, principal: PrincipalDep, session: SessionDep) -> None:
     raise NotImplementedError

@@ -30,4 +30,3 @@ class EvaluationResult(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     failure_category."""
 
     __tablename__ = "evaluation_results"
-

@@ -9,10 +9,10 @@ from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from alembic import context
 from app.core.config import get_settings
 from app.models import Base  # imports every model module
 
@@ -20,7 +20,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", str(get_settings().DATABASE_URL))
+# Respect a URL injected by the caller (the test harness does this); fall
+# back to application settings so the CLI needs no arguments.
+if not config.get_main_option("sqlalchemy.url", None):
+    config.set_main_option("sqlalchemy.url", str(get_settings().DATABASE_URL))
 target_metadata = Base.metadata
 
 

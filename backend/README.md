@@ -1,7 +1,8 @@
 # Backend — Adaptive Evidence AI Lab
 
-Boilerplate only. Every module below is wired but unimplemented: route handlers,
-services and pipeline stages raise `NotImplementedError` by design.
+Phase 1 (foundation) is implemented and verified. Later phases are scaffolded:
+their route handlers and pipeline stages raise `NotImplementedError` by design.
+See [../docs/INITIAL_ARCHITECTURE.md](../docs/INITIAL_ARCHITECTURE.md).
 
 ## Layout
 
@@ -50,6 +51,9 @@ and one Docker image, and matching the existing `backend/` + `frontend/` split.
 
 ## Commands
 
+Requires `make` (not present on Windows by default — see Local setup below
+for the portable equivalents).
+
 ```bash
 make install      # pip install -e ".[dev]"
 make run          # uvicorn app.main:app --reload
@@ -77,9 +81,47 @@ docker compose up --build
 - Tenancy columns (`user_id`, `organization_id`, `project_id`) exist on models
   from the start via `TenantMixin`.
 
-## Not done yet
+## Status
 
-No dependencies are installed, no database exists, no migration has been
-generated, and the app has not been started. ORM models declare only
-`__tablename__` and the shared mixins — domain columns land with the features
-that need them.
+Working today:
+
+| | |
+|---|---|
+| `GET /api/v1/health` | liveness, dependency-free |
+| `GET /api/v1/ready` | pings Postgres + Redis, 503 when degraded |
+| `POST/GET /api/v1/projects` | full slice through service, ORM and migration |
+| `alembic upgrade head` | extensions + organizations, users, projects |
+| `arq` worker | boots and registers 7 task entry points |
+| `ruff` + `mypy --strict` + `pytest` | 29 tests, all green |
+
+Every other route still raises `NotImplementedError`. ORM modules for later
+phases exist but are not registered in `Base.metadata`, so migrations never
+create half-designed tables — see `app/models/__init__.py`.
+
+Authentication is off (`AUTH_MODE=disabled`) and requests run as a seeded
+development principal. The app refuses to boot in production in that mode.
+
+## Local setup
+
+```bash
+docker compose up -d postgres redis     # from the repository root
+cp .env.example .env
+cd backend
+python -m venv .venv && .venv/Scripts/python -m pip install -e ".[dev]"
+.venv/Scripts/python -m alembic upgrade head
+.venv/Scripts/python -m uvicorn app.main:app --reload --no-access-log
+```
+
+Run the quality gates:
+
+```bash
+.venv/Scripts/python -m ruff check . && .venv/Scripts/python -m ruff format --check .
+.venv/Scripts/python -m mypy .
+.venv/Scripts/python -m pytest
+```
+
+The `Makefile` wraps these, but `make` is not installed by default on Windows;
+the commands above are the portable form.
+
+Postgres binds host port 5433 by default (5432 is commonly taken); override
+with `POSTGRES_PORT`.
