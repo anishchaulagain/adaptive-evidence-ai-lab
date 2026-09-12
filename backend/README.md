@@ -94,9 +94,10 @@ Working today:
 | `GET /api/v1/documents[/{id}][/chunks]` | ingestion state and chunk provenance |
 | `POST /api/v1/search` | semantic, keyword or hybrid retrieval, scored, with provenance |
 | `POST /api/v1/query` | grounded answer with claim-level citations |
+| `GET /api/v1/traces[/{id}]` | persisted execution trace, span per stage |
 | `alembic upgrade head` | extensions, identity, projects, documents, chunks + HNSW |
 | `arq` worker | ingests PDF, TXT and Markdown, then embeds |
-| `ruff` + `mypy --strict` + `pytest` | 239 tests green; live provider checks skip themselves |
+| `ruff` + `mypy --strict` + `pytest` | 267 tests green; live provider checks skip themselves |
 
 Ingestion (Phase 2): upload -> validate -> store -> parse -> chunk. Chunks
 carry page and character offsets, so slicing the source by a chunk's offsets
@@ -124,6 +125,13 @@ citations and unsupported claims rather than hiding them.
 
 `POST /search` and `POST /query` both take
 `strategy: semantic | keyword | hybrid`.
+
+Tracing (Phase 8): every `/query` execution persists a trace with a span per
+stage, its timings, token counts and metadata. Failed executions are traced
+too — a failure that leaves no record is the hardest kind to diagnose. The
+trace ID is bound into every log line emitted during the query, so logs and
+traces cross-reference. `GET /traces/{id}` returns spans with an `offset_ms`
+for drawing the execution timeline.
 
 **Reranking (Phase 6) is not implemented.** This Mistral account exposes no
 rerank model (verified against `GET /v1/models`), and a local cross-encoder

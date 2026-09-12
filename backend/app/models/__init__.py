@@ -7,12 +7,13 @@ real columns, so migrations never create half-designed tables.
 Registered:
     Organization, User, Project        (Phase 1)
     Document, Chunk                   (Phase 2)
+    Trace, TraceSpan                  (Phase 8)
 
 Pending — modules exist under `app/models/` but are deliberately not imported:
     DataSource                         (when connectors land; direct
                                         uploads carry no source)
     ModelConfig                        (Phase 7 — generation)
-    Query, Trace, TraceSpan            (Phase 8 — tracing)
+    Query                              (folded into Trace; see app/models/trace.py)
     EvaluationDataset, EvaluationItem,
     EvaluationRun, EvaluationResult    (Phase 9 — evaluation)
     Experiment, ExperimentRun          (Phase 14 — experiments)
@@ -24,6 +25,7 @@ from app.db.base import Base
 from app.models.chunk import Chunk
 from app.models.document import Document, IngestionStatus
 from app.models.project import Project
+from app.models.trace import Trace, TraceSpan
 from app.models.user import Organization, User
 
 __all__ = [
@@ -33,5 +35,7 @@ __all__ = [
     "IngestionStatus",
     "Organization",
     "Project",
+    "Trace",
+    "TraceSpan",
     "User",
 ]
