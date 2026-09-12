@@ -21,6 +21,29 @@ class SearchStrategy(StrEnum):
     SEMANTIC = "semantic"
     KEYWORD = "keyword"
     HYBRID = "hybrid"
+    # Hybrid with query-dependent weights and pool size (spec section 16).
+    ADAPTIVE = "adaptive"
+
+
+class QueryAnalysisRead(APIModel):
+    """Why the adaptive strategy retrieved the way it did (spec section 14).
+
+    `signals` names the rules that fired, so the choice is explainable rather
+    than merely reported.
+    """
+
+    query_type: str
+    difficulty: float
+    ambiguity: float
+    requires_exact_match: bool
+    requires_multihop: bool
+    requires_numeric_reasoning: bool
+    entities: list[str] = Field(default_factory=list)
+    signals: list[str] = Field(default_factory=list)
+    semantic_weight: float
+    keyword_weight: float
+    fetch_multiplier: int
+    reason: str
 
 
 class SearchRequest(APIModel):
@@ -78,4 +101,7 @@ class SearchResponse(APIModel):
     # The lexemes the query reduced to, for keyword retrieval. Explains why a
     # result matched when stemming or stopword removal changed the query.
     query_terms: list[str] = Field(default_factory=list)
+    # Present only for the adaptive strategy, which is the one that makes a
+    # choice worth explaining.
+    analysis: QueryAnalysisRead | None = None
     results: list[EvidenceItem]

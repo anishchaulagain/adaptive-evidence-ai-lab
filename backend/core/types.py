@@ -73,15 +73,34 @@ class RetrievedChunk:
         return None
 
 
+class QueryType(StrEnum):
+    """Query classes the analyzer distinguishes (spec section 14)."""
+
+    CONCEPTUAL = "conceptual"
+    EXACT_ENTITY = "exact_entity"
+    TECHNICAL = "technical"
+    NUMERIC = "numeric"
+    MULTI_HOP = "multi_hop"
+    COMPARATIVE = "comparative"
+    TEMPORAL = "temporal"
+    AMBIGUOUS = "ambiguous"
+
+
 @dataclass(frozen=True, slots=True)
 class QueryAnalysis:
-    """Output of the adaptive query analyzer (spec section 14).
+    """What the analyzer concluded about a query (spec section 14).
 
-    Fields: intent, difficulty, requires_recency, entities, suggested strategy.
+    `signals` names the rules that fired. The platform's central question is
+    "why was this strategy selected?", and a classification that cannot say
+    what triggered it answers that with an assertion rather than a reason.
     """
 
-    intent: str
-    difficulty: float
-    suggested_strategy: RetrieverKind
+    query_type: QueryType
+    difficulty: float = 0.5
+    ambiguity: float = 0.0
+    requires_exact_match: bool = False
+    requires_multihop: bool = False
+    requires_numeric_reasoning: bool = False
     entities: tuple[str, ...] = ()
+    signals: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)

@@ -25,9 +25,8 @@ from app.api.deps import (
 from app.api.v1.routes.search import to_evidence
 from app.core.context import bind_context
 from app.core.security import Principal
-from app.retrieval.hybrid import HybridRetriever
-from app.retrieval.pgvector import PgVectorRetriever
-from app.retrieval.postgres_fts import PostgresFtsRetriever
+from app.retrieval.adaptive import AdaptiveRetriever
+from app.retrieval.factory import EMBEDDING_STRATEGIES, build_retriever
 from app.schemas.query import (
     CitationRef,
     ClaimRead,
@@ -35,7 +34,6 @@ from app.schemas.query import (
     QueryResponse,
     QueryUsage,
 )
-from app.schemas.search import SearchStrategy
 from app.services.project_service import ProjectService
 from app.services.trace_service import TraceService
 from core.errors import DomainError, ErrorCode, ProviderError
@@ -47,7 +45,7 @@ from core.types import RetrievedChunk
 
 router = APIRouter(prefix="/query", tags=["query"])
 
-_NEEDS_EMBEDDINGS = frozenset({SearchStrategy.SEMANTIC, SearchStrategy.HYBRID})
+_NEEDS_EMBEDDINGS = EMBEDDING_STRATEGIES
 
 
 def _citation(chunk: RetrievedChunk) -> CitationRef:
@@ -97,7 +95,7 @@ async def create_query(
             code=ErrorCode.PROVIDER_NOT_CONFIGURED,
             provider="mistral",
         )
-    if payload.strategy in _NEEDS_EMBEDDINGS and embeddings is None:
+    if str(payload.strategy) in _NEEDS_EMBEDDINGS and embeddings is None:
         raise ProviderError(
             f"MISTRAL_API_KEY is not set, so {payload.strategy} retrieval is unavailable.",
             code=ErrorCode.PROVIDER_NOT_CONFIGURED,
@@ -108,7 +106,7 @@ async def create_query(
     trace.set(strategy=str(payload.strategy), top_k=payload.top_k)
     embedding_model = (
         embeddings.model_id
-        if embeddings is not None and payload.strategy in _NEEDS_EMBEDDINGS
+        if embeddings is not None and str(payload.strategy) in _NEEDS_EMBEDDINGS
         else None
     )
 
@@ -228,17 +226,23 @@ async def _retrieve(
 ) -> list[RetrievedChunk]:
     """Run the chosen strategy inside a traced retrieval span."""
     query = RetrievalQuery(text=payload.query, project_id=project_id, top_k=payload.top_k)
-    keyword = PostgresFtsRetriever(session)
-    dense = PgVectorRetriever(session, embeddings)
+    retriever = build_retriever(str(payload.strategy), session, embeddings)
 
     async with trace.span(TraceStage.RETRIEVAL, strategy=str(payload.strategy)) as span:
-        match payload.strategy:
-            case SearchStrategy.KEYWORD:
-                evidence = await keyword.retrieve(query)
-            case SearchStrategy.SEMANTIC:
-                evidence = await dense.retrieve(query)
-            case SearchStrategy.HYBRID:
-                evidence = await HybridRetriever(dense, keyword).retrieve(query)
+        evidence = await retriever.retrieve(query)
+        if isinstance(retriever, AdaptiveRetriever) and retriever.last_analysis:
+            # Recorded on the trace so "why was this strategy selected?" is
+            # answerable from the stored execution, not only from a live call.
+            analysis = retriever.last_analysis
+            profile = retriever.last_profile
+            span.set(
+                query_type=str(analysis.query_type),
+                difficulty=analysis.difficulty,
+                signals=list(analysis.signals),
+                semantic_weight=profile.semantic_weight if profile else None,
+                keyword_weight=profile.keyword_weight if profile else None,
+                profile_reason=profile.reason if profile else None,
+            )
         span.set(
             candidate_count=len(evidence),
             # How many arms actually contributed, which is what makes an

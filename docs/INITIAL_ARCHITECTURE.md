@@ -469,7 +469,66 @@ scikit-learn or umap-learn. §75 does not list it among the four priorities, and
 it is exploratory rather than diagnostic, so it was skipped rather than pulling
 in a large dependency for it.
 
-## 15. Missing infrastructure (next phases)
+## 15. What Phase 11 delivered
+
+Adaptive retrieval (§§14, 16, 76): a deterministic query analyzer feeding a
+configurable retrieval-profile policy.
+
+- **Rules, not an LLM** — classifying a query by the shape of its tokens is
+  free, reproducible, and needs no model (spec rule 20). A learned policy can
+  replace it behind the same protocol once there is evidence the rules are the
+  limit.
+- **Explainable by construction** — every analysis records the `signals` that
+  fired, and the chosen profile carries a `reason`. Both appear in the search
+  response and on the trace's retrieval span, so the choice is answerable from
+  a stored execution and not only from a live call.
+- **Profiles are data** — §16's worked examples live in a table, overridable
+  per query type, because §76 frames the weights as hypotheses to test.
+- **One factory** — `app/retrieval/factory.py` maps a strategy name to a
+  retriever for `/search`, `/query`, the evaluation runner and the comparison
+  view alike, so they cannot drift into building retrievers differently and
+  producing incomparable numbers.
+- **Narrow by design** — `adaptive` differs from `hybrid` in exactly one
+  respect: the weights and pool size come from the query. That makes the
+  comparison between them a measurement of the *policy*, not of two pipelines.
+
+Escalation (`should_escalate`) is implemented but deliberately not wired in:
+whether a second retrieval round repays its cost is a Phase 14 experiment, and
+running one by default would spend the budget before the question is settled
+(§20).
+
+### Measured: does adaptive weighting improve results?
+
+The question §76 poses directly. Same harness, corpus and dataset as Phase 9,
+with `adaptive` added.
+
+| metric | keyword | semantic | hybrid | adaptive |
+|---|---|---|---|---|
+| recall@1 | 0.400 | 0.800 | 0.800 | 0.800 |
+| recall@5 | 0.400 | 1.000 | 1.000 | 1.000 |
+| MRR | 0.400 | 0.900 | 0.900 | 0.900 |
+| nDCG@5 | 0.400 | 0.926 | 0.926 | 0.926 |
+
+Per condition, `adaptive` matched `semantic` and `hybrid` exactly: 1.000 on
+clean, 1.000 on adversarial, no failures.
+
+**The answer is no — adaptive weighting changed nothing measurable here.**
+
+Why, stated precisely. Dense retrieval is at ceiling on recall@5, so no
+weighting scheme has headroom to exploit. More telling: recall@1 is 0.800, so
+two of ten items do *not* rank their gold chunk first — there is headroom
+there, and adaptive did not move it either. Reweighting a fusion cannot promote
+a chunk that neither arm ranked highly.
+
+What this does **not** show is that adaptive retrieval is useless. It shows
+that on a 12-chunk corpus where dense retrieval already succeeds, the policy
+has nothing to contribute. The regime where it might — a corpus large or noisy
+enough for dense retrieval to fail — is exactly what Phases 13 and 14 are for.
+That is now three phases (5, 9, 11) whose measured result is "no improvement
+over plain semantic retrieval at this scale", which is itself the most useful
+finding the platform has produced.
+
+## 16. Missing infrastructure (next phases)
 
 | Need | Phase |
 |---|---|
@@ -483,6 +542,8 @@ in a large dependency for it.
 | SSE streaming (§45) | carries the trace spans Phase 8 now records |
 | Embedding map (§37.3) | needs scikit-learn; not a §75 priority |
 | Frontend views | payloads exist; the Next.js app is still boilerplate |
+| Retrieval escalation (§20) | implemented, unwired pending a Phase 14 experiment |
+| A corpus large enough to stress retrieval | the open question behind Phases 5, 9 and 11 |
 | BM25 / Postgres FTS index | 4 |
 | Model provider adapters and registry | 7 |
 | Trace persistence and SSE streaming | 8 |
