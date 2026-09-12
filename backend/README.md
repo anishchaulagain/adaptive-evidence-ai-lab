@@ -95,9 +95,11 @@ Working today:
 | `POST /api/v1/search` | semantic, keyword or hybrid retrieval, scored, with provenance |
 | `POST /api/v1/query` | grounded answer with claim-level citations |
 | `GET /api/v1/traces[/{id}]` | persisted execution trace, span per stage |
+| `POST /api/v1/evaluations/datasets` | evaluation datasets with gold evidence |
+| `POST /api/v1/evaluations/run` | queued run; recall@k, MRR, nDCG, citation metrics |
 | `alembic upgrade head` | extensions, identity, projects, documents, chunks + HNSW |
 | `arq` worker | ingests PDF, TXT and Markdown, then embeds |
-| `ruff` + `mypy --strict` + `pytest` | 267 tests green; live provider checks skip themselves |
+| `ruff` + `mypy --strict` + `pytest` | 318 tests green; live provider checks skip themselves |
 
 Ingestion (Phase 2): upload -> validate -> store -> parse -> chunk. Chunks
 carry page and character offsets, so slicing the source by a chunk's offsets
@@ -132,6 +134,17 @@ too — a failure that leaves no record is the hardest kind to diagnose. The
 trace ID is bound into every log line emitted during the query, so logs and
 traces cross-reference. `GET /traces/{id}` returns spans with an `offset_ms`
 for drawing the execution timeline.
+
+Evaluation (Phase 9): datasets carry gold evidence, a difficulty and one of
+the six evidence conditions (§28). Runs execute in a worker against a frozen
+config and report recall@k, precision@k, hit rate, MRR, nDCG, citation
+precision/recall/validity, evidence coverage, unsupported-claim rate, tokens
+and latency — overall and **per evidence condition**, because pooling CLEAN
+with ADVERSARIAL hides the contrast worth measuring.
+
+Metrics report `null`, never `0`, where undefined, and every aggregate carries
+`n` — the number of items that actually defined it. Retrieval metrics need no
+provider key.
 
 **Reranking (Phase 6) is not implemented.** This Mistral account exposes no
 rerank model (verified against `GET /v1/models`), and a local cross-encoder
