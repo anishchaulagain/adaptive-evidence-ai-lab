@@ -15,6 +15,7 @@ from app.api.v1.routes import (
     models,
     projects,
     query,
+    search,
     sources,
     traces,
 )
@@ -26,6 +27,7 @@ api_router.include_router(projects.router)
 api_router.include_router(sources.router)
 api_router.include_router(documents.router)
 api_router.include_router(query.router)
+api_router.include_router(search.router)
 api_router.include_router(traces.router)
 api_router.include_router(evaluations.router)
 api_router.include_router(experiments.router)

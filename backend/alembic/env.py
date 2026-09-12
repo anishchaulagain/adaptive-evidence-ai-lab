@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import asyncio
 from logging.config import fileConfig
+from typing import Any, Literal
 
+from alembic.autogenerate.api import AutogenContext
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -27,12 +30,26 @@ if not config.get_main_option("sqlalchemy.url", None):
 target_metadata = Base.metadata
 
 
+def render_item(type_: str, obj: Any, autogen_context: AutogenContext) -> str | Literal[False]:
+    """Render pgvector columns together with their import.
+
+    Autogenerate otherwise emits a bare `pgvector.sqlalchemy...VECTOR(...)`
+    reference and no import, producing a migration that raises NameError.
+    Returning False defers every other type to the default renderer.
+    """
+    if type_ == "type" and isinstance(obj, Vector):
+        autogen_context.imports.add("from pgvector.sqlalchemy import Vector")
+        return f"Vector({obj.dim})"
+    return False
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
         literal_binds=True,
         compare_type=True,
+        render_item=render_item,
         dialect_opts={"paramstyle": "named"},
     )
     with context.begin_transaction():
@@ -45,6 +62,7 @@ def do_run_migrations(connection: Connection) -> None:
         target_metadata=target_metadata,
         compare_type=True,
         compare_server_default=True,
+        render_item=render_item,
     )
     with context.begin_transaction():
         context.run_migrations()

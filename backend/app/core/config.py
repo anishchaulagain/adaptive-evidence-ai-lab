@@ -88,16 +88,25 @@ class Settings(BaseSettings):
     # --- cache / queue ---
     REDIS_URL: RedisDsn
 
-    # --- model providers (empty means "provider disabled") ---
-    ANTHROPIC_API_KEY: SecretStr | None = None
-    OPENAI_API_KEY: SecretStr | None = None
-    GOOGLE_API_KEY: SecretStr | None = None
+    # --- model providers ---
+    # Spec section 81: only include keys for providers actually implemented.
+    # An empty key disables the provider rather than failing at import.
+    MISTRAL_API_KEY: SecretStr | None = None
+    MISTRAL_API_BASE: str = "https://api.mistral.ai/v1"
+    MODEL_REQUEST_TIMEOUT_SECONDS: float = 60.0
+    MODEL_MAX_RETRIES: int = 3
 
     # --- retrieval ---
     VECTOR_STORE_BACKEND: VectorStoreBackend = VectorStoreBackend.PGVECTOR
     KEYWORD_BACKEND: KeywordBackend = KeywordBackend.POSTGRES_FTS
-    EMBEDDING_MODEL: str | None = None
-    EMBEDDING_DIMENSIONS: int = 1536
+    EMBEDDING_MODEL: str = "mistral-embed"
+    # mistral-embed emits fixed 1024-dimensional vectors; the value is not
+    # reducible. It must equal the pgvector column width, which is enforced by
+    # `validate_runtime_settings` — changing models requires a migration.
+    EMBEDDING_DIMENSIONS: int = 1024
+    # Mistral accepts up to 512 inputs per embeddings call.
+    EMBEDDING_BATCH_SIZE: int = 128
+    RETRIEVAL_DEFAULT_TOP_K: int = 10
 
     # --- ingestion (spec section 10) ---
     MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024
@@ -123,6 +132,24 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.ENVIRONMENT is Environment.PRODUCTION
 
+    @field_validator(
+        "MISTRAL_API_KEY",
+        "OBJECT_STORAGE_ACCESS_KEY",
+        "OBJECT_STORAGE_SECRET_KEY",
+        mode="before",
+    )
+    @classmethod
+    def _blank_secret_means_unset(cls, value: object) -> object:
+        """Treat an empty variable as absent.
+
+        `.env` files carry placeholder lines like `MISTRAL_API_KEY=`, which
+        would otherwise parse as an empty secret — indistinguishable from a
+        configured key until the provider rejects it with a 401.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @field_validator("SECRET_KEY")
     @classmethod
     def _reject_placeholder_secret(cls, value: SecretStr) -> SecretStr:
@@ -135,7 +162,18 @@ class Settings(BaseSettings):
 
 
 def validate_runtime_settings(settings: Settings) -> None:
-    """Refuse to boot a production deployment with unsafe configuration."""
+    """Refuse to boot with unsafe or inconsistent configuration."""
+    # Checked in every environment: a mismatch here writes vectors the index
+    # cannot hold, and the failure would otherwise surface deep in a worker.
+    from app.models.chunk import EMBEDDING_DIMENSIONS as COLUMN_DIMENSIONS
+
+    if settings.EMBEDDING_DIMENSIONS != COLUMN_DIMENSIONS:
+        raise RuntimeError(
+            f"EMBEDDING_DIMENSIONS ({settings.EMBEDDING_DIMENSIONS}) does not match the "
+            f"chunks.embedding column width ({COLUMN_DIMENSIONS}). Changing embedding "
+            "model requires a migration that alters the column and rebuilds the index."
+        )
+
     if not settings.is_production:
         return
 
@@ -148,6 +186,8 @@ def validate_runtime_settings(settings: Settings) -> None:
         problems.append("LOG_FORMAT must be 'json' in production")
     if settings.AUTH_MODE is AuthMode.DISABLED:
         problems.append("AUTH_MODE must not be 'disabled' in production")
+    if settings.MISTRAL_API_KEY is None:
+        problems.append("MISTRAL_API_KEY must be set in production")
     if problems:
         raise RuntimeError("Unsafe production configuration: " + "; ".join(problems))
 

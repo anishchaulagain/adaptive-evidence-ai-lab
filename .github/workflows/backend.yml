@@ -53,6 +53,9 @@ jobs:
       SECRET_KEY: ci-secret-not-used-for-anything-real
       ENVIRONMENT: development
       LOG_FORMAT: json
+      # Deliberately unset: the suite must pass with no provider key, using a
+      # deterministic embedder. Live provider checks skip themselves.
+      MISTRAL_API_KEY: ""
 
     steps:
       - uses: actions/checkout@v4

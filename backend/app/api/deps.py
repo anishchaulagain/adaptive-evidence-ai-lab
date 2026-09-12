@@ -15,8 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import AuthMode, Settings, get_settings
 from app.core.errors import UnauthenticatedError
+from app.core.providers import get_embedding_pipeline
 from app.core.security import DEV_PRINCIPAL, Principal, decode_access_token
 from app.db.session import get_sessionmaker
+from core.embeddings.pipeline import BatchedEmbeddingPipeline
 
 
 async def get_db_session() -> AsyncIterator[AsyncSession]:
@@ -49,7 +51,23 @@ async def get_current_principal(
     return decode_access_token(authorization.split(" ", 1)[1])
 
 
+async def get_embeddings(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AsyncIterator[BatchedEmbeddingPipeline]:
+    """Yield the configured embedding pipeline, closing its connection pool.
+
+    Exposed as a dependency rather than constructed in the route so tests can
+    substitute a deterministic embedder and run without a provider key.
+    """
+    pipeline = get_embedding_pipeline(settings)
+    try:
+        yield pipeline
+    finally:
+        await pipeline.aclose()
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+EmbeddingsDep = Annotated[BatchedEmbeddingPipeline, Depends(get_embeddings)]
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 PrincipalDep = Annotated[Principal, Depends(get_current_principal)]
 
@@ -74,11 +92,13 @@ async def get_project_scope(
 ProjectScopeDep = Annotated[UUID, Depends(get_project_scope)]
 
 __all__ = [
+    "EmbeddingsDep",
     "PrincipalDep",
     "ProjectScopeDep",
     "SessionDep",
     "SettingsDep",
     "get_current_principal",
     "get_db_session",
+    "get_embeddings",
     "get_project_scope",
 ]
