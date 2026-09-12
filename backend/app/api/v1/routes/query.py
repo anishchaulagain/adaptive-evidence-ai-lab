@@ -1,23 +1,30 @@
-"""Query execution (spec sections 13, 22, 44, 72).
+"""Query execution (spec sections 13, 22, 23, 44, 72, 73).
 
 Composes retrieval with generation: retrieve evidence, answer strictly from it,
 resolve every citation back to an exact span. `/search` remains the retrieval
 surface on its own, so retrieval can still be evaluated without an LLM.
 
-Streaming (spec section 45) and the trace system (section 23) arrive in the
-phases that own them; this endpoint returns the complete answer.
+Every execution produces a persisted trace, including a failed one — a failure
+that leaves no trace is the hardest kind to diagnose (spec section 47).
 """
 
 from __future__ import annotations
 
-import time
 from uuid import UUID
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import EmbeddingsDep, GeneratorDep, PrincipalDep, SessionDep, SettingsDep
+from app.api.deps import (
+    EmbeddingsDep,
+    GeneratorDep,
+    PrincipalDep,
+    SessionDep,
+    SettingsDep,
+)
 from app.api.v1.routes.search import to_evidence
+from app.core.context import bind_context
+from app.core.security import Principal
 from app.retrieval.hybrid import HybridRetriever
 from app.retrieval.pgvector import PgVectorRetriever
 from app.retrieval.postgres_fts import PostgresFtsRetriever
@@ -30,9 +37,12 @@ from app.schemas.query import (
 )
 from app.schemas.search import SearchStrategy
 from app.services.project_service import ProjectService
-from core.errors import ErrorCode, ProviderError
+from app.services.trace_service import TraceService
+from core.errors import DomainError, ErrorCode, ProviderError
 from core.reasoning.base import InferenceBudget
 from core.retrieval.base import RetrievalQuery
+from core.tracing.base import TraceStage
+from core.tracing.recorder import TraceCollector, TraceRecord
 from core.types import RetrievedChunk
 
 router = APIRouter(prefix="/query", tags=["query"])
@@ -48,6 +58,23 @@ def _citation(chunk: RetrievedChunk) -> CitationRef:
         char_start=chunk.provenance.char_start,
         char_end=chunk.provenance.char_end,
         text=chunk.text,
+    )
+
+
+def _estimate_cost(settings: object, input_tokens: int, output_tokens: int) -> float | None:
+    """Cost in currency units, or None when no pricing is configured.
+
+    A fabricated zero would silently understate what a benchmark run cost, so
+    the absence of pricing is reported as absence.
+    """
+    input_rate = getattr(settings, "GENERATION_INPUT_COST_PER_MTOK", None)
+    output_rate = getattr(settings, "GENERATION_OUTPUT_COST_PER_MTOK", None)
+    if input_rate is None and output_rate is None:
+        return None
+    return round(
+        input_tokens / 1_000_000 * (input_rate or 0.0)
+        + output_tokens / 1_000_000 * (output_rate or 0.0),
+        8,
     )
 
 
@@ -77,31 +104,72 @@ async def create_query(
             provider="mistral",
         )
 
-    query = RetrievalQuery(text=payload.query, project_id=project.id, top_k=payload.top_k)
-    keyword = PostgresFtsRetriever(session)
-    dense = PgVectorRetriever(session, embeddings)
-
-    retrieval_started = time.perf_counter()
-    evidence: list[RetrievedChunk]
-    match payload.strategy:
-        case SearchStrategy.KEYWORD:
-            evidence = await keyword.retrieve(query)
-        case SearchStrategy.SEMANTIC:
-            evidence = await dense.retrieve(query)
-        case SearchStrategy.HYBRID:
-            evidence = await HybridRetriever(dense, keyword).retrieve(query)
-    retrieval_ms = round((time.perf_counter() - retrieval_started) * 1000, 2)
-
-    generation_started = time.perf_counter()
-    answer = await generator.generate(
-        payload.query,
-        evidence,
-        InferenceBudget(
-            max_input_tokens=0,
-            max_output_tokens=settings.GENERATION_MAX_OUTPUT_TOKENS,
-        ),
+    trace = TraceCollector()
+    trace.set(strategy=str(payload.strategy), top_k=payload.top_k)
+    embedding_model = (
+        embeddings.model_id
+        if embeddings is not None and payload.strategy in _NEEDS_EMBEDDINGS
+        else None
     )
-    generation_ms = round((time.perf_counter() - generation_started) * 1000, 2)
+
+    # Bind the trace ID so every log line emitted during this query carries it
+    # (spec section 48), making logs and the stored trace cross-referenceable.
+    with bind_context(trace_id=str(trace.trace_id)):
+        evidence: list[RetrievedChunk] = []
+        try:
+            evidence = await _retrieve(payload, project.id, session, embeddings, trace)
+
+            async with trace.span(TraceStage.GENERATION, model=generator.model_id) as span:
+                answer = await generator.generate(
+                    payload.query,
+                    evidence,
+                    InferenceBudget(
+                        max_input_tokens=0,
+                        max_output_tokens=settings.GENERATION_MAX_OUTPUT_TOKENS,
+                    ),
+                )
+                span.set(
+                    claims=len(answer.claims),
+                    abstained=answer.abstained,
+                    invented_citations=answer.metadata.get("invented_citations", 0),
+                    input_tokens=answer.usage.input_tokens,
+                    output_tokens=answer.usage.output_tokens,
+                )
+            trace.record_usage(
+                input_tokens=answer.usage.input_tokens,
+                output_tokens=answer.usage.output_tokens,
+                cost=_estimate_cost(
+                    settings, answer.usage.input_tokens, answer.usage.output_tokens
+                ),
+            )
+        except DomainError as exc:
+            # Persist what did run before re-raising: a failed execution is
+            # exactly the one worth being able to inspect afterwards.
+            await _save_trace(
+                session,
+                trace.finish(error_code=str(exc.code), error_message=exc.message),
+                project_id=project.id,
+                principal=principal,
+                payload=payload,
+                model=generator.model_id,
+                embedding_model=embedding_model,
+                evidence_count=len(evidence),
+                abstained=False,
+            )
+            raise
+
+        record = trace.finish()
+        await _save_trace(
+            session,
+            record,
+            project_id=project.id,
+            principal=principal,
+            payload=payload,
+            model=answer.model_id,
+            embedding_model=embedding_model,
+            evidence_count=len(evidence),
+            abstained=answer.abstained,
+        )
 
     # Resolve cited chunk IDs back to spans. Built from the evidence actually
     # retrieved, so a citation can only ever point at real source text.
@@ -124,11 +192,8 @@ async def create_query(
         claims=claims,
         strategy=payload.strategy,
         model=answer.model_id,
-        embedding_model=(
-            embeddings.model_id
-            if embeddings is not None and payload.strategy in _NEEDS_EMBEDDINGS
-            else None
-        ),
+        embedding_model=embedding_model,
+        trace_id=record.trace_id,
         evidence=[to_evidence(hit) for hit in evidence] if payload.include_evidence else [],
         evidence_count=len(evidence),
         invented_citations=int(answer.metadata.get("invented_citations", 0)),
@@ -136,10 +201,68 @@ async def create_query(
         usage=QueryUsage(
             input_tokens=answer.usage.input_tokens,
             output_tokens=answer.usage.output_tokens,
-            retrieval_latency_ms=retrieval_ms,
-            generation_latency_ms=generation_ms,
-            total_latency_ms=round(retrieval_ms + generation_ms, 2),
+            cost=record.cost,
+            retrieval_latency_ms=record.latency_of(TraceStage.RETRIEVAL) or 0.0,
+            generation_latency_ms=record.latency_of(TraceStage.GENERATION) or 0.0,
+            total_latency_ms=record.total_latency_ms,
         ),
+    )
+
+
+async def _retrieve(
+    payload: QueryRequest,
+    project_id: UUID,
+    session: SessionDep,
+    embeddings: EmbeddingsDep,
+    trace: TraceCollector,
+) -> list[RetrievedChunk]:
+    """Run the chosen strategy inside a traced retrieval span."""
+    query = RetrievalQuery(text=payload.query, project_id=project_id, top_k=payload.top_k)
+    keyword = PostgresFtsRetriever(session)
+    dense = PgVectorRetriever(session, embeddings)
+
+    async with trace.span(TraceStage.RETRIEVAL, strategy=str(payload.strategy)) as span:
+        match payload.strategy:
+            case SearchStrategy.KEYWORD:
+                evidence = await keyword.retrieve(query)
+            case SearchStrategy.SEMANTIC:
+                evidence = await dense.retrieve(query)
+            case SearchStrategy.HYBRID:
+                evidence = await HybridRetriever(dense, keyword).retrieve(query)
+        span.set(
+            candidate_count=len(evidence),
+            # How many arms actually contributed, which is what makes an
+            # empty keyword arm visible rather than invisible.
+            sources=sorted(
+                {str(item.retriever) for hit in evidence for item in (hit.contributions or ())}
+            ),
+        )
+    return evidence
+
+
+async def _save_trace(
+    session: SessionDep,
+    record: TraceRecord,
+    *,
+    project_id: UUID,
+    principal: Principal,
+    payload: QueryRequest,
+    model: str | None,
+    embedding_model: str | None,
+    evidence_count: int,
+    abstained: bool,
+) -> None:
+    await TraceService(session).save(
+        record,
+        project_id=project_id,
+        principal=principal,
+        query_text=payload.query,
+        strategy=str(payload.strategy),
+        model=model,
+        provider="mistral",
+        embedding_model=embedding_model,
+        evidence_count=evidence_count,
+        abstained=abstained,
     )
 
 
@@ -149,7 +272,7 @@ async def stream_query(
 ) -> StreamingResponse:
     """Stream execution progress and answer tokens as Server-Sent Events.
 
-    Unimplemented: streaming is spec section 45, and arrives with the trace
-    system whose stage events it carries.
+    Unimplemented: streaming is spec section 45, and the stage events it would
+    carry are exactly the trace spans this endpoint now records.
     """
     raise NotImplementedError

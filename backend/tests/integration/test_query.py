@@ -156,8 +156,10 @@ async def test_usage_and_latency_are_reported_per_stage(
     assert usage["output_tokens"] == 40
     assert usage["retrieval_latency_ms"] >= 0
     assert usage["generation_latency_ms"] >= 0
-    assert usage["total_latency_ms"] == pytest.approx(
-        usage["retrieval_latency_ms"] + usage["generation_latency_ms"], abs=0.02
+    # Total is the whole traced execution, so it covers the stages plus the
+    # work between them — it must not be merely their sum.
+    assert usage["total_latency_ms"] >= (
+        usage["retrieval_latency_ms"] + usage["generation_latency_ms"]
     )
 
 

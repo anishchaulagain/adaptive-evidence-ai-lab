@@ -117,6 +117,11 @@ class Settings(BaseSettings):
     # How much evidence reaches the model. More context is not free, and the
     # Phase 14 experiments exist to find where the benefit stops.
     GENERATION_EVIDENCE_TOP_K: int = 8
+    # Token pricing, in currency units per million tokens. Unset by default:
+    # rates differ by plan and change over time, and a guessed figure reported
+    # as a measured cost would be worse than no figure (spec rule 9).
+    GENERATION_INPUT_COST_PER_MTOK: float | None = None
+    GENERATION_OUTPUT_COST_PER_MTOK: float | None = None
 
     # --- ingestion (spec section 10) ---
     MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024

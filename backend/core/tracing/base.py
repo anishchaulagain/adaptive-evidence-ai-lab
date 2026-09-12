@@ -1,7 +1,11 @@
-"""Trace construction (spec section 23).
+"""Trace construction (spec sections 23, 48).
 
 Every pipeline stage opens a span. A stage that is not traced is not
 observable, and therefore not finished.
+
+Provider- and database-free: the recorder collects spans in memory during a
+query, and persistence is the application layer's job. That keeps tracing
+usable from workers, scripts and experiment runners, not just from a request.
 """
 
 from __future__ import annotations
@@ -12,9 +16,13 @@ from typing import Any, Protocol
 
 
 class TraceStage(StrEnum):
+    """The pipeline stages a trace can contain (spec section 73)."""
+
     QUERY_ANALYSIS = "query_analysis"
+    QUERY_EMBEDDING = "query_embedding"
     SEMANTIC_RETRIEVAL = "semantic_retrieval"
     KEYWORD_RETRIEVAL = "keyword_retrieval"
+    RETRIEVAL = "retrieval"
     FUSION = "fusion"
     RERANKING = "reranking"
     EVIDENCE_ASSESSMENT = "evidence_assessment"
@@ -23,13 +31,27 @@ class TraceStage(StrEnum):
     VERIFICATION = "verification"
 
 
-class TraceRecorder(Protocol):
-    """Collects spans for a single query execution.
+class SpanStatus(StrEnum):
+    OK = "ok"
+    ERROR = "error"
 
-    `span()` is an async context manager: it records start/end timestamps and
-    attaches an error code if the stage raises.
+
+class SpanHandle(Protocol):
+    """A span in progress.
+
+    `set()` exists because the facts worth recording — how many candidates a
+    retriever returned, which model answered — are only known once the stage
+    has run.
     """
 
-    def span(self, stage: TraceStage, **attributes: Any) -> AsyncIterator[None]: ...
+    def set(self, **attributes: Any) -> None: ...
 
-    def record_usage(self, *, input_tokens: int, output_tokens: int, cost: float) -> None: ...
+
+class TraceRecorder(Protocol):
+    """Collects spans for a single query execution."""
+
+    def span(self, stage: TraceStage, **attributes: Any) -> AsyncIterator[SpanHandle]: ...
+
+    def record_usage(
+        self, *, input_tokens: int = 0, output_tokens: int = 0, cost: float | None = None
+    ) -> None: ...

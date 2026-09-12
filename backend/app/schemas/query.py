@@ -57,6 +57,8 @@ class QueryUsage(APIModel):
 
     input_tokens: int
     output_tokens: int
+    # Null unless token pricing is configured; never a fabricated zero.
+    cost: float | None = None
     retrieval_latency_ms: float
     generation_latency_ms: float
     total_latency_ms: float
@@ -75,6 +77,9 @@ class QueryResponse(APIModel):
     strategy: SearchStrategy
     model: str
     embedding_model: str | None = None
+    # The persisted execution trace for this answer. Fetch it from
+    # /traces/{id} to see every stage, its timing and its metadata.
+    trace_id: UUID
 
     evidence: list[EvidenceItem] = Field(default_factory=list)
     evidence_count: int

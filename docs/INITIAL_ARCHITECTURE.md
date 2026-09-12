@@ -304,7 +304,51 @@ The `/query` endpoint was exercised live end to end: real hybrid retrieval ran
 without calling the chat model — confirming the no-evidence path, which is the
 one place the missing quota does not bite.
 
-## 12. Missing infrastructure (next phases)
+## 12. What Phase 8 delivered
+
+The trace system (§73): every query persists a trace with a span per stage.
+
+- **Failures are traced** — a query that raises still persists what ran before
+  it did, then re-raises. Verified against a real provider failure: retrieval
+  recorded `ok` with `candidate_count=1`, generation recorded `error` with
+  `MODEL_RATE_LIMIT`. §47 requires errors to appear in traces, and an untraced
+  failure is the one hardest to diagnose.
+- **Retry cost is visible** — that failed generation span measured 4293ms
+  against a ~440ms retrieval, which is the three retry attempts and their
+  backoff showing up as a duration rather than as a mystery.
+- **Spans nest** — a stage opened inside another records its parent, so the
+  tree in §23 reconstructs.
+- **Ordered by start sequence, not timestamp** — a monotonic counter assigned
+  when a span opens. A wall-clock timestamp is not enough: Windows' clock is
+  coarse enough (~15ms) that two stages share one, and a stable sort then
+  silently falls back to *completion* order, placing a nested stage before its
+  parent. A test caught this.
+- **`offset_ms` is precomputed** so a client draws §24's timeline directly
+  instead of deriving it and getting the zero point wrong.
+- **Cost is null, not zero** — token pricing is unset by default because rates
+  differ by plan and change. A guessed figure reported as a measured cost would
+  be worse than no figure (spec rule 9). Set
+  `GENERATION_INPUT_COST_PER_MTOK` / `GENERATION_OUTPUT_COST_PER_MTOK` to
+  populate it.
+- **Trace ID in the logging context** — bound for the duration of the query, so
+  every log line carries it and logs cross-reference the stored trace (§48).
+
+### A schema decision
+
+The spec lists both `queries` and `traces` tables. The trace holds its query
+text directly instead: a query with no trace is not something this platform
+creates, so splitting them would mean a join on every read and two rows to keep
+consistent, for no gain. A `queries` table can be added later if query history
+needs to outlive trace retention.
+
+### Stages that exist but never fire
+
+`reranking` and `verification` are in `TraceStage` and report `null` latency
+rather than `0`. Nothing runs them yet — Phase 6 is skipped and verification
+(§21) is unscheduled — and a zero would read as "ran instantly" rather than
+"did not run".
+
+## 13. Missing infrastructure (next phases)
 
 | Need | Phase |
 |---|---|
@@ -313,6 +357,8 @@ one place the missing quota does not bite.
 | True BM25 with IDF (`KEYWORD_BACKEND=bm25`) | when ranking quality is measured |
 | Reranker implementation | when a rerank model or cross-encoder is available |
 | Live generation verification | when chat quota is enabled on the key |
+| Verification layer (§21) | unscheduled; `TraceStage.VERIFICATION` reserved |
+| SSE streaming (§45) | carries the trace spans Phase 8 now records |
 | BM25 / Postgres FTS index | 4 |
 | Model provider adapters and registry | 7 |
 | Trace persistence and SSE streaming | 8 |
