@@ -380,3 +380,21 @@ async def test_storage_holds_the_uploaded_bytes(
         stored = await service.storage.get(document.storage_key)
 
     assert stored == content
+
+
+async def test_a_job_for_a_deleted_document_is_terminal(
+    client: AsyncClient, project_id: UUID, settings: Settings
+) -> None:
+    """Deleting a project while its job is queued is a normal race. The job
+    must not raise, or arq would retry something that can never succeed."""
+    body = await _upload(
+        client,
+        project_id,
+        content=b"about to be deleted",
+        filename="doomed.txt",
+        content_type="text/plain",
+    )
+    document_id = UUID(str(body["id"]))
+    await _delete_project(project_id)
+
+    await _run_worker(settings, document_id)

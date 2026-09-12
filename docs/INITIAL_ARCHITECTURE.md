@@ -20,6 +20,9 @@ discarded.
 | Spec | Implementation | Reason |
 |---|---|---|
 | `apps/api` + root `core/`, `models/`, … (§49) | All Python under `backend/` keeping those package names | One `pyproject.toml`, venv, test suite and image; matches the existing `backend/` + `frontend/` split |
+| Model provider unspecified (§7) | **Mistral** (`mistral-embed`) | Chosen by the project owner; the only provider key configured. Adapters for others slot in behind the same protocol |
+| `EMBEDDING_DIMENSIONS=1536` in the template | 1024 | 1536 is OpenAI's width; `mistral-embed` emits fixed 1024-d vectors that cannot be reduced |
+| Object storage abstraction (§6) | Local filesystem only | Not deployed yet; S3 and Azure raise `NotImplementedError` behind the same protocol |
 | PDF library unspecified | `pypdf` | BSD licensed and pure Python; PyMuPDF is AGPL and unsuitable for this project |
 | Background workers unspecified (§46) | `arq` | Async-native and Redis-backed, so it shares the event loop and connection pool with FastAPI; Celery would add a second concurrency model |
 | Host Postgres port 5432 | 5433 by default, `POSTGRES_PORT` overridable | 5432 was already bound on the development machine |
@@ -105,13 +108,50 @@ Token counts are an explicit estimate (`HeuristicTokenCounter`) because no
 embedding model is configured yet; Phase 3 registers the real tokenizer behind
 the same protocol.
 
-## 7. Missing infrastructure (next phases)
+## 7. What Phase 3 delivered
+
+Dense retrieval (§68): embedding provider -> vector storage -> similarity
+search -> top-K, with scores exposed.
+
+- **Provider** — `models/providers/mistral.py` talks to `POST /v1/embeddings`
+  over httpx rather than the vendor SDK, so error mapping, timeouts and retry
+  policy are explicit and testable. HTTP statuses map onto the domain codes
+  (429 -> `MODEL_RATE_LIMIT`, 5xx -> `MODEL_UNAVAILABLE`, 401 ->
+  `PROVIDER_NOT_CONFIGURED`); only transient failures are retried, because
+  repeating a rejected key just burns the rate limit.
+- **Response validation** — vectors are reordered by the response's `index`
+  rather than assumed positional, and both the count and the width are checked.
+  A silent mis-ordering would attach the wrong vector to every chunk.
+- **Secrets** — the API key is applied per request, not baked into a client the
+  adapter may not own, and provider response bodies never reach `details`,
+  which is serialised into API responses.
+- **Storage** — `chunks.embedding` is `vector(1024)` with an HNSW index using
+  `vector_cosine_ops`. Mistral vectors are unit-norm, so cosine and inner
+  product rank identically; cosine is used so the index stays correct if a
+  future model emits un-normalised vectors.
+- **Resumability** — only chunks missing a vector, or carrying a different
+  `embedding_model`, are sent to the provider. Re-running a job costs nothing,
+  and a model change becomes a re-run rather than a rebuild.
+- **Degradation** — without a key the platform still ingests, parses and
+  chunks; only the embedding stage is unavailable, and `/search` fails with
+  `PROVIDER_NOT_CONFIGURED` rather than a bare 500.
+
+`POST /search` is deliberately separate from `/query`: it returns evidence and
+scores with no generated answer, so retrieval can be evaluated without an LLM
+in the loop. `/query` (Phase 7) composes generation on top of it.
+
+Two guards were added after finding real defects: a blank `MISTRAL_API_KEY=`
+line now reads as unset rather than as an empty key that fails with a 401 much
+later, and `EMBEDDING_DIMENSIONS` is checked against the column width at boot.
+A worker job for a document deleted while queued is now terminal rather than
+retried five times.
+
+## 8. Missing infrastructure (next phases)
 
 | Need | Phase |
 |---|---|
 | S3 / Azure object storage backends | when deployed |
 | DOCX and PPTX parsers, OCR for scanned pages | 2 (follow-up) |
-| Embedding provider and pgvector index | 3 |
 | BM25 / Postgres FTS index | 4 |
 | Model provider adapters and registry | 7 |
 | Trace persistence and SSE streaming | 8 |

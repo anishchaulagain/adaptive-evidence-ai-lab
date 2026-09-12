@@ -92,14 +92,23 @@ Working today:
 | `POST/GET /api/v1/projects` | full slice through service, ORM and migration |
 | `POST /api/v1/documents/upload` | validate, store, queue (202) |
 | `GET /api/v1/documents[/{id}][/chunks]` | ingestion state and chunk provenance |
-| `alembic upgrade head` | extensions, identity, projects, documents, chunks |
-| `arq` worker | ingests PDF, TXT and Markdown end to end |
-| `ruff` + `mypy --strict` + `pytest` | 79 tests, all green |
+| `POST /api/v1/search` | dense retrieval with scores and provenance |
+| `alembic upgrade head` | extensions, identity, projects, documents, chunks + HNSW |
+| `arq` worker | ingests PDF, TXT and Markdown, then embeds |
+| `ruff` + `mypy --strict` + `pytest` | 130 tests green, 3 skipped without a key |
 
-Ingestion pipeline (Phase 2): upload -> validate -> store -> parse -> chunk.
-Chunks carry page and character offsets, so slicing the source by a chunk's
-offsets returns its text — the contract citations depend on. Embeddings
-(Phase 3) and keyword indexing (Phase 4) are not wired yet.
+Ingestion (Phase 2): upload -> validate -> store -> parse -> chunk. Chunks
+carry page and character offsets, so slicing the source by a chunk's offsets
+returns its text — the contract citations depend on.
+
+Dense retrieval (Phase 3): chunks are embedded with **mistral-embed** (1024-d,
+fixed) into a pgvector column with an HNSW cosine index, and `POST /search`
+returns scored, ranked evidence. Keyword retrieval (Phase 4) and hybrid
+fusion (Phase 5) are not wired yet.
+
+Embedding needs `MISTRAL_API_KEY`. Without it the platform still ingests,
+parses and chunks; documents simply are not dense-retrievable until a key is
+set and the embedding job re-runs. Object storage is local-filesystem only.
 
 Every other route still raises `NotImplementedError`. ORM modules for later
 phases exist but are not registered in `Base.metadata`, so migrations never
