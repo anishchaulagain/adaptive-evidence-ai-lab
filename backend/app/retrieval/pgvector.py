@@ -12,6 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chunk import Chunk
+from core.embeddings.base import EmbeddingPipeline
+from core.errors import ErrorCode, ProviderError
 from core.retrieval.base import RetrievalQuery
 from core.types import Provenance, RetrievedChunk, RetrieverKind
 
@@ -21,8 +23,25 @@ class PgVectorRetriever:
 
     name = "pgvector_semantic"
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, embeddings: EmbeddingPipeline | None = None) -> None:
         self._session = session
+        self._embeddings = embeddings
+
+    async def retrieve(self, query: RetrievalQuery) -> list[RetrievedChunk]:
+        """Embed the query, then search (spec section 70's `Retriever`).
+
+        Requires an embedding pipeline. `retrieve_with_vector` stays available
+        for callers that already hold the vector and should not pay to compute
+        it twice.
+        """
+        if self._embeddings is None:
+            raise ProviderError(
+                "Semantic retrieval needs an embedding pipeline.",
+                code=ErrorCode.PROVIDER_NOT_CONFIGURED,
+                provider="mistral",
+            )
+        vector = await self._embeddings.embed_query(query.text)
+        return await self.retrieve_with_vector(query, vector)
 
     async def retrieve_with_vector(
         self, query: RetrievalQuery, vector: list[float]

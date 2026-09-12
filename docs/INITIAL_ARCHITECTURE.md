@@ -196,7 +196,55 @@ The Postgres `english` configuration splits `get_user_by_id` into `get`,
 retrievable but not matchable as exact units. Tested and documented rather than
 papered over.
 
-## 9. Missing infrastructure (next phases)
+## 9. What Phase 5 delivered
+
+Hybrid retrieval (§70): dense + keyword -> RRF -> unified ranking, behind the
+uniform `Retriever` interface the spec asks for.
+
+- **Uniform interface** — `PgVectorRetriever` gained a `retrieve()` that embeds
+  internally, so `HybridRetriever` composes two `Retriever`s rather than
+  reimplementing either. A true BM25 backend or Qdrant drops in untouched.
+  `retrieve_with_vector` remains for callers that already hold the vector and
+  should not pay to compute it twice.
+- **Why RRF** — the arms return cosine similarity and normalised `ts_rank_cd`,
+  which share no scale and, for the keyword arm, are not comparable across
+  queries. RRF uses only each arm's ordering, so it cannot be skewed by one
+  arm's scores happening to be larger. `weighted_score_fusion` stays explicitly
+  unimplemented until Phase 9 produces the score distributions needed to
+  calibrate it honestly.
+- **Fusion provenance** (§17) — every fused hit carries `retrieval_source`,
+  `fusion_score`, and the pre-fusion rank and score of each arm. This is what
+  answers "did semantic miss this and keyword recover it?".
+- **Fetch depth** — each arm retrieves `3 x top_k` (minimum 20) before fusion,
+  because a chunk the dense arm ranked 12th that keyword ranked 1st is exactly
+  the case hybrid exists to catch. Truncation happens after fusion.
+- **Sequential arms** — the arms share one `AsyncSession`, which does not
+  support concurrent operations. Overlapping a ~10ms keyword query with a
+  ~400ms embedding call would not repay running a second session and its
+  connection accounting.
+- **Determinism** — ties break on chunk ID, never input order, and fusion
+  recomputes rank from list position rather than trusting a hit's self-reported
+  `rank`, so a mislabelling retriever cannot corrupt the result.
+
+### Measured: does fusion beat dense alone?
+
+On a 12-chunk corpus with real `mistral-embed`, across three exact-identifier
+probes and four natural-language questions:
+
+| strategy | top-1 accuracy |
+|---|---|
+| keyword | 3/7 — returned nothing for every natural-language question |
+| semantic | 7/7 |
+| hybrid | 7/7 |
+
+Hybrid matched the best arm on every probe and never degraded dense, but it did
+not beat it: dense is already at ceiling at this corpus size, so fusion has
+nothing to add. That is a null result, not a success — the benefit of hybrid
+retrieval remains unmeasured until the Phase 9 harness runs it over a corpus
+large enough, and noisy enough, for dense retrieval to actually fail. Phases 13
+and 14 exist to settle it.
+
+## 10. Missing infrastructure (next phases)
 
 | Need | Phase |
 |---|---|
