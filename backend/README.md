@@ -93,9 +93,10 @@ Working today:
 | `POST /api/v1/documents/upload` | validate, store, queue (202) |
 | `GET /api/v1/documents[/{id}][/chunks]` | ingestion state and chunk provenance |
 | `POST /api/v1/search` | semantic, keyword or hybrid retrieval, scored, with provenance |
+| `POST /api/v1/query` | grounded answer with claim-level citations |
 | `alembic upgrade head` | extensions, identity, projects, documents, chunks + HNSW |
 | `arq` worker | ingests PDF, TXT and Markdown, then embeds |
-| `ruff` + `mypy --strict` + `pytest` | 188 tests green (185 without a provider key) |
+| `ruff` + `mypy --strict` + `pytest` | 239 tests green; live provider checks skip themselves |
 
 Ingestion (Phase 2): upload -> validate -> store -> parse -> chunk. Chunks
 carry page and character offsets, so slicing the source by a chunk's offsets
@@ -116,8 +117,24 @@ Reciprocal Rank Fusion. Every fused hit reports which arms found it and at what
 rank and score (spec section 17), so a ranking can be explained rather than
 trusted.
 
-`POST /search` takes `strategy: semantic | keyword | hybrid`. Reranking is
-Phase 6.
+Generation (Phase 7): `POST /query` retrieves, then answers strictly from the
+retrieved passages. Every claim carries its own citations resolved back to
+exact document spans (spec section 22), and the response reports invented
+citations and unsupported claims rather than hiding them.
+
+`POST /search` and `POST /query` both take
+`strategy: semantic | keyword | hybrid`.
+
+**Reranking (Phase 6) is not implemented.** This Mistral account exposes no
+rerank model (verified against `GET /v1/models`), and a local cross-encoder
+would mean a torch dependency. `core.reranking.base.Reranker` remains the seam
+for one to be added.
+
+**Generation needs chat quota.** This key currently reports
+`x-ratelimit-limit-req-minute: 0` for `/chat/completions` while embeddings work
+normally, so live answering is unavailable until chat is enabled on the plan.
+The generation path is complete and covered by tests against a deterministic
+fake model.
 
 Embedding needs `MISTRAL_API_KEY`. Without it the platform still ingests,
 parses and chunks; documents simply are not dense-retrievable until a key is

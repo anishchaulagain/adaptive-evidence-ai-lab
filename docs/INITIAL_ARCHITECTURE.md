@@ -244,13 +244,75 @@ retrieval remains unmeasured until the Phase 9 harness runs it over a corpus
 large enough, and noisy enough, for dense retrieval to actually fail. Phases 13
 and 14 exist to settle it.
 
-## 10. Missing infrastructure (next phases)
+## 10. Phase 6 (reranking): not implemented
+
+`GET /v1/models` on this account lists 46 models — embeddings, chat and
+moderation — and no reranker. The alternatives were a local cross-encoder,
+which means a torch dependency for a project that currently installs in
+seconds, or a second provider key that does not exist. Neither is justified to
+satisfy a phase heading.
+
+§71 asks for "a reranker interface... keep it replaceable", and
+`core.reranking.base.Reranker` provides exactly that seam.
+`RetrievedChunk.rerank_score` is already on the result type. An implementation
+drops in without touching retrieval, fusion or generation.
+
+## 11. What Phase 7 delivered
+
+Grounded generation (§72): evidence set -> prompt -> LLM -> structured answer
+-> citation mapping.
+
+- **Claim-level provenance** (§22) — the answer decomposes into claims, each
+  citing the passages supporting it. A single citation appended to a whole
+  answer cannot be checked, because nothing says which part it supports.
+- **Citations by index, not ID** — passages are numbered positionally in the
+  prompt. A UUID wastes tokens and invites transcription errors; an index can
+  be validated against what was actually retrieved, so an invented citation is
+  *detectable* rather than plausible-looking. Out-of-range citations are
+  dropped and counted in `invented_citations`.
+- **Unsupported claims are surfaced, not hidden** — a claim citing nothing is
+  kept and flagged, because that is precisely what the verification layer
+  (§21) must be able to find.
+- **Abstention is a correct outcome** — with no evidence the model is never
+  called at all, and the endpoint abstains. Paying a provider to be told there
+  is nothing to answer from is waste.
+- **Determinism** — temperature pinned to 0, so an answer does not vary
+  between identical runs and downstream evaluation stays reproducible.
+- **Shared transport** — `MistralTransport` now carries HTTP, retry and error
+  mapping for both embeddings and chat, with the caller's stage code passed
+  through so a failure stays attributable to the stage that caused it rather
+  than collapsing to a generic internal error.
+
+### Generation is unverified against the live provider
+
+The key has embedding quota but **zero** chat quota: `/chat/completions`
+returns 429 with `x-ratelimit-limit-req-minute: 0`, which is a plan limit, not
+a transient rate limit, so retrying cannot help. The live generation checks
+skip themselves with that diagnosis rather than failing.
+
+What this means honestly: the generation path is complete and tested against a
+deterministic fake model — 26 unit tests covering citation validation,
+abstention and malformed output, plus 18 integration tests through the real
+retrieval stack — but no real model has yet produced an answer through it. The
+JSON contract, prompt quality and abstention behaviour of the actual model
+remain unconfirmed. Enabling chat on the plan and running
+`pytest tests/integration/test_mistral_live.py` is the check that closes that
+gap.
+
+The `/query` endpoint was exercised live end to end: real hybrid retrieval ran
+(`mistral-embed`, ~500ms), found no evidence in an empty project, and abstained
+without calling the chat model — confirming the no-evidence path, which is the
+one place the missing quota does not bite.
+
+## 12. Missing infrastructure (next phases)
 
 | Need | Phase |
 |---|---|
 | S3 / Azure object storage backends | when deployed |
 | DOCX and PPTX parsers, OCR for scanned pages | 2 (follow-up) |
 | True BM25 with IDF (`KEYWORD_BACKEND=bm25`) | when ranking quality is measured |
+| Reranker implementation | when a rerank model or cross-encoder is available |
+| Live generation verification | when chat quota is enabled on the key |
 | BM25 / Postgres FTS index | 4 |
 | Model provider adapters and registry | 7 |
 | Trace persistence and SSE streaming | 8 |

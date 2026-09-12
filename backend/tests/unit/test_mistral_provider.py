@@ -15,6 +15,7 @@ from core.errors import ErrorCode, ProviderError
 from models.providers.mistral import (
     MAX_BATCH_SIZE,
     MISTRAL_EMBED_DIMENSIONS,
+    MistralChatModel,
     MistralEmbeddingModel,
 )
 
@@ -223,3 +224,109 @@ async def test_oversized_batch_is_refused_before_the_request() -> None:
         await _model(handler).embed(["text"] * (MAX_BATCH_SIZE + 1))
 
     assert excinfo.value.code is ErrorCode.MODEL_CONTEXT_EXCEEDED
+
+
+# --- chat model -----------------------------------------------------------
+
+
+def _chat(handler: Any, **kwargs: Any) -> MistralChatModel:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api.mistral.ai/v1",
+    )
+    return MistralChatModel(api_key="test-key", client=client, **kwargs)
+
+
+def _chat_payload(content: str, *, finish_reason: str = "stop") -> dict[str, Any]:
+    return {
+        "choices": [
+            {"message": {"role": "assistant", "content": content}, "finish_reason": finish_reason}
+        ],
+        "usage": {"prompt_tokens": 120, "completion_tokens": 34},
+    }
+
+
+async def _complete(model: MistralChatModel) -> tuple[dict[str, Any], Any]:
+    return await model.complete_json(
+        system="sys", user="usr", max_output_tokens=256, temperature=0.0
+    )
+
+
+async def test_chat_returns_parsed_json_and_usage() -> None:
+    model = _chat(lambda request: httpx.Response(200, json=_chat_payload('{"answer": "hi"}')))
+
+    parsed, usage = await _complete(model)
+
+    assert parsed == {"answer": "hi"}
+    assert usage.input_tokens == 120
+    assert usage.output_tokens == 34
+
+
+async def test_chat_requests_json_mode_and_pins_temperature() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        seen.update(_json.loads(request.content))
+        return httpx.Response(200, json=_chat_payload("{}"))
+
+    await _complete(_chat(handler))
+
+    assert seen["response_format"] == {"type": "json_object"}
+    assert seen["temperature"] == 0.0
+    assert seen["max_tokens"] == 256
+    assert [message["role"] for message in seen["messages"]] == ["system", "user"]
+
+
+async def test_a_truncated_answer_names_the_token_limit() -> None:
+    """Hitting the output cap produces invalid JSON; reporting it as a parse
+    error would hide the actual cause."""
+    model = _chat(
+        lambda request: httpx.Response(
+            200, json=_chat_payload('{"answer": "cut o', finish_reason="length")
+        )
+    )
+
+    with pytest.raises(ProviderError) as excinfo:
+        await _complete(model)
+
+    assert excinfo.value.code is ErrorCode.MODEL_CONTEXT_EXCEEDED
+
+
+async def test_invalid_json_content_is_a_generation_failure() -> None:
+    model = _chat(lambda request: httpx.Response(200, json=_chat_payload("not json")))
+
+    with pytest.raises(ProviderError) as excinfo:
+        await _complete(model)
+
+    assert excinfo.value.code is ErrorCode.GENERATION_FAILED
+
+
+async def test_a_json_array_is_rejected() -> None:
+    model = _chat(lambda request: httpx.Response(200, json=_chat_payload("[1, 2, 3]")))
+
+    with pytest.raises(ProviderError) as excinfo:
+        await _complete(model)
+
+    assert excinfo.value.code is ErrorCode.GENERATION_FAILED
+
+
+async def test_a_response_without_choices_is_rejected() -> None:
+    model = _chat(lambda request: httpx.Response(200, json={"usage": {}}))
+
+    with pytest.raises(ProviderError) as excinfo:
+        await _complete(model)
+
+    assert excinfo.value.code is ErrorCode.GENERATION_FAILED
+
+
+async def test_chat_errors_are_attributed_to_generation() -> None:
+    """An unexpected status during generation must not collapse to a generic
+    internal error — the stage has to stay identifiable in a trace."""
+    model = _chat(lambda request: httpx.Response(418, json={"message": "nope"}), max_retries=1)
+
+    with pytest.raises(ProviderError) as excinfo:
+        await _complete(model)
+
+    assert excinfo.value.code is ErrorCode.GENERATION_FAILED

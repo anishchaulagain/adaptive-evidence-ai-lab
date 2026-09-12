@@ -10,7 +10,39 @@ from __future__ import annotations
 from app.core.config import Settings
 from core.embeddings.pipeline import BatchedEmbeddingPipeline
 from core.errors import ErrorCode, ProviderError
-from models.providers.mistral import MISTRAL_EMBED_MODEL, MistralEmbeddingModel
+from core.reasoning.grounded import GroundedAnswerGenerator
+from models.providers.mistral import (
+    MISTRAL_EMBED_MODEL,
+    MistralChatModel,
+    MistralEmbeddingModel,
+)
+
+
+def generation_enabled(settings: Settings) -> bool:
+    """Whether a chat provider is configured for answering."""
+    return settings.MISTRAL_API_KEY is not None
+
+
+def get_answer_generator(settings: Settings) -> GroundedAnswerGenerator:
+    """Build the configured answer generator.
+
+    The caller owns the result and must `aclose()` it — it holds an HTTP
+    connection pool.
+    """
+    if settings.MISTRAL_API_KEY is None:
+        raise ProviderError(
+            "MISTRAL_API_KEY is not set, so answers cannot be generated.",
+            code=ErrorCode.PROVIDER_NOT_CONFIGURED,
+            provider="mistral",
+        )
+    model = MistralChatModel(
+        api_key=settings.MISTRAL_API_KEY.get_secret_value(),
+        base_url=settings.MISTRAL_API_BASE,
+        model_id=settings.GENERATION_MODEL,
+        timeout=settings.MODEL_REQUEST_TIMEOUT_SECONDS,
+        max_retries=settings.MODEL_MAX_RETRIES,
+    )
+    return GroundedAnswerGenerator(model, temperature=settings.GENERATION_TEMPERATURE)
 
 
 def embeddings_enabled(settings: Settings) -> bool:

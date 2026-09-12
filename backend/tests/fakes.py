@@ -10,8 +10,10 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+from typing import Any
 
 from app.models.chunk import EMBEDDING_DIMENSIONS
+from core.reasoning.base import TokenUsage
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 
@@ -62,6 +64,48 @@ class FakeEmbeddingModel:
             )
         self.calls.append(list(texts))
         return [deterministic_vector(text, self.dimensions) for text in texts]
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class FakeChatModel:
+    """Implements `ChatModel` with a scripted JSON response.
+
+    Lets generation, citation resolution and the whole `/query` path be tested
+    without a provider key, a network call, or model non-determinism.
+    """
+
+    def __init__(
+        self,
+        payload: dict[str, Any] | None = None,
+        *,
+        model_id: str = "fake-chat",
+        usage: tuple[int, int] = (100, 40),
+    ) -> None:
+        self.model_id = model_id
+        self.payload = payload if payload is not None else {"answer": "", "claims": []}
+        self._usage = usage
+        self.calls: list[dict[str, Any]] = []
+        self.closed = False
+
+    async def complete_json(
+        self,
+        *,
+        system: str,
+        user: str,
+        max_output_tokens: int,
+        temperature: float,
+    ) -> tuple[dict[str, Any], TokenUsage]:
+        self.calls.append(
+            {
+                "system": system,
+                "user": user,
+                "max_output_tokens": max_output_tokens,
+                "temperature": temperature,
+            }
+        )
+        return self.payload, TokenUsage(input_tokens=self._usage[0], output_tokens=self._usage[1])
 
     async def aclose(self) -> None:
         self.closed = True

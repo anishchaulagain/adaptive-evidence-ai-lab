@@ -36,7 +36,7 @@ router = APIRouter(prefix="/search", tags=["retrieval"])
 _NEEDS_EMBEDDINGS = frozenset({SearchStrategy.SEMANTIC, SearchStrategy.HYBRID})
 
 
-def _to_evidence(hit: RetrievedChunk) -> EvidenceItem:
+def to_evidence(hit: RetrievedChunk) -> EvidenceItem:
     """Flatten a hit, including per-retriever contributions (spec section 17)."""
     semantic = hit.contribution(RetrieverKind.SEMANTIC)
     keyword = hit.contribution(RetrieverKind.KEYWORD)
@@ -112,5 +112,5 @@ async def search(
         query_terms=query_terms,
         top_k=payload.top_k,
         latency_ms=latency_ms,
-        results=[_to_evidence(hit) for hit in hits],
+        results=[to_evidence(hit) for hit in hits],
     )
