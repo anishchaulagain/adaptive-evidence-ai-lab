@@ -15,10 +15,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import AuthMode, Settings, get_settings
 from app.core.errors import UnauthenticatedError
-from app.core.providers import embeddings_enabled, get_embedding_pipeline
+from app.core.providers import (
+    embeddings_enabled,
+    generation_enabled,
+    get_answer_generator,
+    get_embedding_pipeline,
+)
 from app.core.security import DEV_PRINCIPAL, Principal, decode_access_token
 from app.db.session import get_sessionmaker
 from core.embeddings.pipeline import BatchedEmbeddingPipeline
+from core.reasoning.grounded import GroundedAnswerGenerator
 
 
 async def get_db_session() -> AsyncIterator[AsyncSession]:
@@ -73,8 +79,29 @@ async def get_embeddings(
         await pipeline.aclose()
 
 
+async def get_generator(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AsyncIterator[GroundedAnswerGenerator | None]:
+    """Yield the configured answer generator, or None when no key is set.
+
+    None rather than raising, for the same reason as `get_embeddings`:
+    dependencies resolve eagerly, and a route that only retrieves must not be
+    broken by a missing key it never uses.
+    """
+    if not generation_enabled(settings):
+        yield None
+        return
+
+    generator = get_answer_generator(settings)
+    try:
+        yield generator
+    finally:
+        await generator.aclose()
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 EmbeddingsDep = Annotated[BatchedEmbeddingPipeline | None, Depends(get_embeddings)]
+GeneratorDep = Annotated[GroundedAnswerGenerator | None, Depends(get_generator)]
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 PrincipalDep = Annotated[Principal, Depends(get_current_principal)]
 
@@ -100,6 +127,7 @@ ProjectScopeDep = Annotated[UUID, Depends(get_project_scope)]
 
 __all__ = [
     "EmbeddingsDep",
+    "GeneratorDep",
     "PrincipalDep",
     "ProjectScopeDep",
     "SessionDep",
@@ -107,5 +135,6 @@ __all__ = [
     "get_current_principal",
     "get_db_session",
     "get_embeddings",
+    "get_generator",
     "get_project_scope",
 ]

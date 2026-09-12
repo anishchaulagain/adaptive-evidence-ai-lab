@@ -108,6 +108,16 @@ class Settings(BaseSettings):
     EMBEDDING_BATCH_SIZE: int = 128
     RETRIEVAL_DEFAULT_TOP_K: int = 10
 
+    # --- generation (spec sections 22, 72) ---
+    GENERATION_MODEL: str = "mistral-medium-latest"
+    GENERATION_MAX_OUTPUT_TOKENS: int = 1024
+    # Pinned to 0: an answer that varies between identical runs would make
+    # every downstream evaluation irreproducible (spec principle 2).
+    GENERATION_TEMPERATURE: float = 0.0
+    # How much evidence reaches the model. More context is not free, and the
+    # Phase 14 experiments exist to find where the benefit stops.
+    GENERATION_EVIDENCE_TOP_K: int = 8
+
     # --- ingestion (spec section 10) ---
     MAX_UPLOAD_BYTES: int = 50 * 1024 * 1024
     ALLOWED_UPLOAD_MIME_TYPES: set[str] = Field(
