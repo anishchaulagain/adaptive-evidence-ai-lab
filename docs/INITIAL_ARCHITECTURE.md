@@ -153,12 +153,56 @@ parsing work. Tests that drive a job through the API fixtures inherit that
 lifespan and cannot catch such a gap, so `tests/integration/test_worker_runtime.py`
 exercises the worker's own startup directly.
 
-## 8. Missing infrastructure (next phases)
+## 8. What Phase 4 delivered
+
+Keyword retrieval (§69): score, rank and matched terms over a generated
+`tsvector` column with a GIN index.
+
+- **Naming** — the retriever is `keyword` / `PostgresFtsRetriever`, never
+  `bm25`. §6 permits Postgres FTS as the initial backend, but `ts_rank_cd` is
+  cover-density ranking, not Okapi BM25. Mislabelling it would corrupt the very
+  strategy comparisons this platform exists to run. `KEYWORD_BACKEND=bm25`
+  remains reserved for a real implementation behind the same protocol.
+- **Generated column** — `chunks.tsv` is `GENERATED ALWAYS AS (...) STORED`, so
+  it cannot drift from `text` the way a trigger- or application-maintained
+  column can.
+- **Query parsing** — `websearch_to_tsquery`, which tolerates anything a user
+  types. `to_tsquery` raises on malformed input, which would let a search box
+  return a 500.
+- **Matched terms** — ordered by position in the query, not alphabetically as
+  `tsvector_to_array` returns them, so they read like the query that produced
+  them. `query_terms` exposes what the query stemmed to, which is what turns a
+  surprising ranking into an explicable one.
+
+### Measured properties that constrain Phase 5
+
+| Property | Consequence |
+|---|---|
+| `websearch_to_tsquery` is conjunctive | Every lexeme must be present, so the keyword arm is high-precision, low-recall, and frequently returns nothing for a natural-language question. Fusion must tolerate an empty keyword set. |
+| `ts_rank_cd` has no IDF | A rare identifier and a common word weigh the same. This is why OR semantics were *not* adopted: without IDF, widening to OR would rank common-word matches alongside exact ones. It is also the concrete gap a true BM25 backend would close. |
+| Cover density falls as a query spans more terms | Scores rank chunks within one query only. They are not comparable across queries or strategies and must not be averaged or thresholded globally. |
+
+Both properties are covered by tests, so they are known behaviour rather than
+Phase 5 surprises.
+
+A live comparison on a corpus of near-identical passages differing only in an
+identifier (`ERR-5521` vs `ERR-9310`, `4.2.1` vs `3.9.7`) had both strategies
+at 4/4 top-1. The assumption that dense retrieval fails on exact identifiers
+did not hold for `mistral-embed` at this corpus size — which is a finding for
+the Phase 14 experiments to measure properly, not to assume.
+
+The Postgres `english` configuration splits `get_user_by_id` into `get`,
+`user`, `id` and drops `by` as a stopword, so snake_case identifiers are
+retrievable but not matchable as exact units. Tested and documented rather than
+papered over.
+
+## 9. Missing infrastructure (next phases)
 
 | Need | Phase |
 |---|---|
 | S3 / Azure object storage backends | when deployed |
 | DOCX and PPTX parsers, OCR for scanned pages | 2 (follow-up) |
+| True BM25 with IDF (`KEYWORD_BACKEND=bm25`) | when ranking quality is measured |
 | BM25 / Postgres FTS index | 4 |
 | Model provider adapters and registry | 7 |
 | Trace persistence and SSE streaming | 8 |

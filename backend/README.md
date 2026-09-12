@@ -92,19 +92,26 @@ Working today:
 | `POST/GET /api/v1/projects` | full slice through service, ORM and migration |
 | `POST /api/v1/documents/upload` | validate, store, queue (202) |
 | `GET /api/v1/documents[/{id}][/chunks]` | ingestion state and chunk provenance |
-| `POST /api/v1/search` | dense retrieval with scores and provenance |
+| `POST /api/v1/search` | semantic or keyword retrieval, scored, with provenance |
 | `alembic upgrade head` | extensions, identity, projects, documents, chunks + HNSW |
 | `arq` worker | ingests PDF, TXT and Markdown, then embeds |
-| `ruff` + `mypy --strict` + `pytest` | 135 tests green (132 without a provider key) |
+| `ruff` + `mypy --strict` + `pytest` | 159 tests green (156 without a provider key) |
 
 Ingestion (Phase 2): upload -> validate -> store -> parse -> chunk. Chunks
 carry page and character offsets, so slicing the source by a chunk's offsets
 returns its text — the contract citations depend on.
 
 Dense retrieval (Phase 3): chunks are embedded with **mistral-embed** (1024-d,
-fixed) into a pgvector column with an HNSW cosine index, and `POST /search`
-returns scored, ranked evidence. Keyword retrieval (Phase 4) and hybrid
-fusion (Phase 5) are not wired yet.
+fixed) into a pgvector column with an HNSW cosine index.
+
+Keyword retrieval (Phase 4): a generated `tsvector` column with a GIN index,
+queried via `websearch_to_tsquery` and ranked by `ts_rank_cd`. Results report
+score, rank and matched terms. It is named `keyword`, not `bm25`, because
+`ts_rank_cd` is cover-density ranking with no IDF — see
+`app/retrieval/postgres_fts.py` for the measured differences. Keyword search
+needs no provider key and no embeddings.
+
+`POST /search` takes `strategy: semantic | keyword`. Hybrid fusion is Phase 5.
 
 Embedding needs `MISTRAL_API_KEY`. Without it the platform still ingests,
 parses and chunks; documents simply are not dense-retrievable until a key is

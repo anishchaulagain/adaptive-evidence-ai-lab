@@ -41,6 +41,9 @@ class RetrievedChunk:
     provenance: Provenance
     rank: int
     rerank_score: float | None = None
+    # Which query terms actually matched. Empty for semantic retrieval, where
+    # nothing lexical matched at all — that distinction is the point.
+    matched_terms: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import AuthMode, Settings, get_settings
 from app.core.errors import UnauthenticatedError
-from app.core.providers import get_embedding_pipeline
+from app.core.providers import embeddings_enabled, get_embedding_pipeline
 from app.core.security import DEV_PRINCIPAL, Principal, decode_access_token
 from app.db.session import get_sessionmaker
 from core.embeddings.pipeline import BatchedEmbeddingPipeline
@@ -53,12 +53,19 @@ async def get_current_principal(
 
 async def get_embeddings(
     settings: Annotated[Settings, Depends(get_settings)],
-) -> AsyncIterator[BatchedEmbeddingPipeline]:
-    """Yield the configured embedding pipeline, closing its connection pool.
+) -> AsyncIterator[BatchedEmbeddingPipeline | None]:
+    """Yield the configured embedding pipeline, or None when no key is set.
 
-    Exposed as a dependency rather than constructed in the route so tests can
-    substitute a deterministic embedder and run without a provider key.
+    Yields None rather than raising because dependencies resolve eagerly, and
+    keyword retrieval needs no provider at all — it would otherwise be broken
+    by a missing key it never uses. The semantic path raises instead.
+
+    Exposed as a dependency so tests can substitute a deterministic embedder.
     """
+    if not embeddings_enabled(settings):
+        yield None
+        return
+
     pipeline = get_embedding_pipeline(settings)
     try:
         yield pipeline
@@ -67,7 +74,7 @@ async def get_embeddings(
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
-EmbeddingsDep = Annotated[BatchedEmbeddingPipeline, Depends(get_embeddings)]
+EmbeddingsDep = Annotated[BatchedEmbeddingPipeline | None, Depends(get_embeddings)]
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 PrincipalDep = Annotated[Principal, Depends(get_current_principal)]
 
