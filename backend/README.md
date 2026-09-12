@@ -95,7 +95,7 @@ Working today:
 | `POST /api/v1/search` | dense retrieval with scores and provenance |
 | `alembic upgrade head` | extensions, identity, projects, documents, chunks + HNSW |
 | `arq` worker | ingests PDF, TXT and Markdown, then embeds |
-| `ruff` + `mypy --strict` + `pytest` | 130 tests green, 3 skipped without a key |
+| `ruff` + `mypy --strict` + `pytest` | 135 tests green (132 without a provider key) |
 
 Ingestion (Phase 2): upload -> validate -> store -> parse -> chunk. Chunks
 carry page and character offsets, so slicing the source by a chunk's offsets

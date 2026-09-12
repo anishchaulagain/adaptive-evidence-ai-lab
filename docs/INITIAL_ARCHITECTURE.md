@@ -140,11 +140,18 @@ search -> top-K, with scores exposed.
 scores with no generated answer, so retrieval can be evaluated without an LLM
 in the loop. `/query` (Phase 7) composes generation on top of it.
 
-Two guards were added after finding real defects: a blank `MISTRAL_API_KEY=`
-line now reads as unset rather than as an empty key that fails with a 401 much
-later, and `EMBEDDING_DIMENSIONS` is checked against the column width at boot.
-A worker job for a document deleted while queued is now terminal rather than
-retried five times.
+Guards added after finding real defects: a blank `MISTRAL_API_KEY=` line now
+reads as unset rather than as an empty key that fails with a 401 much later;
+`EMBEDDING_DIMENSIONS` is checked against the column width at boot; and a
+worker job for a document deleted while queued is terminal rather than retried
+five times.
+
+The worker process also now establishes its own queue pool. Ingestion chains an
+embedding job, and the worker runs outside the API's lifespan — so without it,
+ingestion completed and then failed at the hand-off, after doing all the
+parsing work. Tests that drive a job through the API fixtures inherit that
+lifespan and cannot catch such a gap, so `tests/integration/test_worker_runtime.py`
+exercises the worker's own startup directly.
 
 ## 8. Missing infrastructure (next phases)
 

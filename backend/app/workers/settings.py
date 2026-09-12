@@ -16,6 +16,7 @@ from arq.connections import RedisSettings
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.session import dispose_engine, init_engine
+from app.workers.queue import close_queue, init_queue
 from app.workers.tasks import TASK_FUNCTIONS
 
 
@@ -23,10 +24,14 @@ async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     configure_logging(settings)
     init_engine(settings)
+    # The worker enqueues follow-up jobs of its own (ingestion chains
+    # embedding), so it needs its own pool. The API lifespan does not run here.
+    await init_queue(settings)
     ctx["settings"] = settings
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
+    await close_queue()
     await dispose_engine()
 
 
