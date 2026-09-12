@@ -17,11 +17,12 @@ import time
 from fastapi import APIRouter
 
 from app.api.deps import EmbeddingsDep, PrincipalDep, SessionDep
-from app.retrieval.hybrid import HybridRetriever
-from app.retrieval.pgvector import PgVectorRetriever
+from app.retrieval.adaptive import AdaptiveRetriever
+from app.retrieval.factory import EMBEDDING_STRATEGIES, build_retriever
 from app.retrieval.postgres_fts import PostgresFtsRetriever
 from app.schemas.search import (
     EvidenceItem,
+    QueryAnalysisRead,
     SearchRequest,
     SearchResponse,
     SearchStrategy,
@@ -33,7 +34,28 @@ from core.types import RetrievedChunk, RetrieverKind
 
 router = APIRouter(prefix="/search", tags=["retrieval"])
 
-_NEEDS_EMBEDDINGS = frozenset({SearchStrategy.SEMANTIC, SearchStrategy.HYBRID})
+_NEEDS_EMBEDDINGS = EMBEDDING_STRATEGIES
+
+
+def _analysis_read(retriever: AdaptiveRetriever) -> QueryAnalysisRead | None:
+    """Flatten the adaptive decision for the response."""
+    analysis, profile = retriever.last_analysis, retriever.last_profile
+    if analysis is None or profile is None:  # pragma: no cover - set by retrieve()
+        return None
+    return QueryAnalysisRead(
+        query_type=str(analysis.query_type),
+        difficulty=analysis.difficulty,
+        ambiguity=analysis.ambiguity,
+        requires_exact_match=analysis.requires_exact_match,
+        requires_multihop=analysis.requires_multihop,
+        requires_numeric_reasoning=analysis.requires_numeric_reasoning,
+        entities=list(analysis.entities),
+        signals=list(analysis.signals),
+        semantic_weight=profile.semantic_weight,
+        keyword_weight=profile.keyword_weight,
+        fetch_multiplier=profile.fetch_multiplier,
+        reason=profile.reason,
+    )
 
 
 def to_evidence(hit: RetrievedChunk) -> EvidenceItem:
@@ -71,7 +93,7 @@ async def search(
     # Enforces project isolation before anything is embedded or queried.
     project = await ProjectService(session).get(payload.project_id, principal)
 
-    if payload.strategy in _NEEDS_EMBEDDINGS and embeddings is None:
+    if str(payload.strategy) in _NEEDS_EMBEDDINGS and embeddings is None:
         raise ProviderError(
             f"MISTRAL_API_KEY is not set, so {payload.strategy} search is "
             "unavailable. Keyword search needs no provider and still works.",
@@ -80,36 +102,31 @@ async def search(
         )
 
     query = RetrievalQuery(text=payload.query, project_id=project.id, top_k=payload.top_k)
-    keyword = PostgresFtsRetriever(session)
-    dense = PgVectorRetriever(session, embeddings)
+    retriever = build_retriever(str(payload.strategy), session, embeddings)
 
     # Embedding is the slow, billable part of a search, so it sits inside the
     # timing window rather than hidden from it.
     started = time.perf_counter()
-    hits: list[RetrievedChunk]
-    match payload.strategy:
-        case SearchStrategy.KEYWORD:
-            hits = await keyword.retrieve(query)
-        case SearchStrategy.SEMANTIC:
-            hits = await dense.retrieve(query)
-        case SearchStrategy.HYBRID:
-            hits = await HybridRetriever(dense, keyword).retrieve(query)
+    hits: list[RetrievedChunk] = await retriever.retrieve(query)
     latency_ms = round((time.perf_counter() - started) * 1000, 2)
 
     # Lexemes explain a lexical hit, so report them whenever one could occur.
     query_terms: list[str] = []
     if payload.strategy is not SearchStrategy.SEMANTIC:
-        query_terms = await keyword.query_lexemes(payload.query)
+        query_terms = await PostgresFtsRetriever(session).query_lexemes(payload.query)
+
+    analysis = _analysis_read(retriever) if isinstance(retriever, AdaptiveRetriever) else None
 
     return SearchResponse(
         query=payload.query,
         strategy=payload.strategy,
         embedding_model=(
             embeddings.model_id
-            if embeddings is not None and payload.strategy in _NEEDS_EMBEDDINGS
+            if embeddings is not None and str(payload.strategy) in _NEEDS_EMBEDDINGS
             else None
         ),
         query_terms=query_terms,
+        analysis=analysis,
         top_k=payload.top_k,
         latency_ms=latency_ms,
         results=[to_evidence(hit) for hit in hits],

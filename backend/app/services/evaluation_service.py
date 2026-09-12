@@ -28,9 +28,7 @@ from app.models.evaluation import (
     EvaluationResult,
     EvaluationRun,
 )
-from app.retrieval.hybrid import HybridRetriever
-from app.retrieval.pgvector import PgVectorRetriever
-from app.retrieval.postgres_fts import PostgresFtsRetriever
+from app.retrieval.factory import EMBEDDING_STRATEGIES, build_retriever
 from app.services.base import Service
 from core.errors import DomainError
 from core.reasoning.base import InferenceBudget
@@ -217,7 +215,7 @@ class EvaluationService(Service):
         owns_generator = generate and generator is None
         embeddings = None
         try:
-            if strategy in {"semantic", "hybrid"}:
+            if strategy in EMBEDDING_STRATEGIES:
                 embeddings = get_embedding_pipeline(self.settings)
             if owns_generator:
                 generator = get_answer_generator(self.settings)
@@ -304,16 +302,10 @@ class EvaluationService(Service):
         failures counted is far more useful than no measurement at all.
         """
         query = RetrievalQuery(text=spec.question, project_id=project_id, top_k=top_k)
-        keyword = PostgresFtsRetriever(self.session)
-        dense = PgVectorRetriever(self.session, embeddings)  # type: ignore[arg-type]
+        retriever = build_retriever(strategy, self.session, embeddings)  # type: ignore[arg-type]
 
         try:
-            if strategy == "keyword":
-                evidence = await keyword.retrieve(query)
-            elif strategy == "semantic":
-                evidence = await dense.retrieve(query)
-            else:
-                evidence = await HybridRetriever(dense, keyword).retrieve(query)
+            evidence = await retriever.retrieve(query)
 
             retrieved = tuple(hit.provenance.chunk_id for hit in evidence)
             if generator is None:

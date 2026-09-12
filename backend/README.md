@@ -97,9 +97,10 @@ Working today:
 | `GET /api/v1/traces[/{id}]` | persisted execution trace, span per stage |
 | `POST /api/v1/evaluations/datasets` | evaluation datasets with gold evidence |
 | `POST /api/v1/evaluations/run` | queued run; recall@k, MRR, nDCG, citation metrics |
+| `GET /api/v1/visualizations/...` | timeline, evidence graph, comparison, heatmap |
 | `alembic upgrade head` | extensions, identity, projects, documents, chunks + HNSW |
 | `arq` worker | ingests PDF, TXT and Markdown, then embeds |
-| `ruff` + `mypy --strict` + `pytest` | 318 tests green; live provider checks skip themselves |
+| `ruff` + `mypy --strict` + `pytest` | 398 tests green; live provider checks skip themselves |
 
 Ingestion (Phase 2): upload -> validate -> store -> parse -> chunk. Chunks
 carry page and character offsets, so slicing the source by a chunk's offsets
@@ -145,6 +146,24 @@ with ADVERSARIAL hides the contrast worth measuring.
 Metrics report `null`, never `0`, where undefined, and every aggregate carries
 `n` — the number of items that actually defined it. Retrieval metrics need no
 provider key.
+
+Visualization payloads (Phase 10): render-ready data for the four views §75
+prioritises — trace timeline (offsets and nesting depth precomputed), evidence
+graph (query -> documents -> chunks -> claims -> answer), retrieval comparison
+across all three strategies, and the evaluation heatmap. The builders live in
+`visualization/` and are free of the ORM. The frontend is untouched; these are
+the payloads it will render.
+
+Adaptive retrieval (Phase 11): `strategy: adaptive` classifies the query with
+deterministic rules (§14) and picks fusion weights and pool depth per query
+type (§16). The response and the trace both carry the analysis — query type,
+the rules that fired, the weights chosen — so "why was this strategy selected?"
+is answerable. Profiles are configurable, because §76 treats the weights as
+hypotheses rather than settings.
+
+**Measured, per §76: adaptive weighting did not improve results** on the test
+corpus — identical to hybrid and to plain semantic on recall@1/@5, MRR and
+nDCG@5. See `docs/INITIAL_ARCHITECTURE.md`.
 
 **Reranking (Phase 6) is not implemented.** This Mistral account exposes no
 rerank model (verified against `GET /v1/models`), and a local cross-encoder

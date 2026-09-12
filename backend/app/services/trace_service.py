@@ -32,6 +32,10 @@ class TraceService(Service):
         embedding_model: str | None = None,
         evidence_count: int = 0,
         abstained: bool = False,
+        answer: str | None = None,
+        claims: list[dict[str, object]] | None = None,
+        retrieved_chunk_ids: list[UUID] | None = None,
+        cited_chunk_ids: list[UUID] | None = None,
     ) -> Trace:
         """Persist a trace and its spans."""
         trace = Trace(
@@ -50,6 +54,10 @@ class TraceService(Service):
             embedding_model=embedding_model,
             evidence_count=evidence_count,
             abstained=abstained,
+            answer=answer,
+            claims=claims or [],
+            retrieved_chunk_ids=retrieved_chunk_ids or [],
+            cited_chunk_ids=cited_chunk_ids or [],
             error_code=record.error_code,
             error_message=record.error_message,
             attributes=record.attributes,
