@@ -13,7 +13,17 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    ARRAY,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    Uuid,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TenantMixin, TimestampMixin, UUIDPrimaryKeyMixin
@@ -44,6 +54,16 @@ class Trace(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
 
     evidence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     abstained: Mapped[bool] = mapped_column(nullable=False, default=False)
+
+    # The answer and what it rested on. Stored because spec section 18 requires
+    # every answer to be traceable to its evidence, and a trace that records
+    # only timings cannot reconstruct that chain after the fact.
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    claims: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    retrieved_chunk_ids: Mapped[list[UUID]] = mapped_column(
+        ARRAY(Uuid), nullable=False, default=list
+    )
+    cited_chunk_ids: Mapped[list[UUID]] = mapped_column(ARRAY(Uuid), nullable=False, default=list)
 
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

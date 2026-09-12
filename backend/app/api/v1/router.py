@@ -18,6 +18,7 @@ from app.api.v1.routes import (
     search,
     sources,
     traces,
+    visualizations,
 )
 
 api_router = APIRouter()
@@ -33,3 +34,4 @@ api_router.include_router(evaluations.router)
 api_router.include_router(experiments.router)
 api_router.include_router(benchmarks.router)
 api_router.include_router(models.router)
+api_router.include_router(visualizations.router)

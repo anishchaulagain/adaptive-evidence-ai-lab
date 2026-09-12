@@ -155,6 +155,7 @@ async def create_query(
                 embedding_model=embedding_model,
                 evidence_count=len(evidence),
                 abstained=False,
+                retrieved_chunk_ids=[hit.provenance.chunk_id for hit in evidence],
             )
             raise
 
@@ -169,6 +170,15 @@ async def create_query(
             embedding_model=embedding_model,
             evidence_count=len(evidence),
             abstained=answer.abstained,
+            answer=answer.text,
+            # Stored so the evidence graph can be rebuilt from the trace alone
+            # (spec section 18) rather than only from a live response.
+            claims=[
+                {"text": claim.text, "evidence": [str(c) for c in claim.evidence]}
+                for claim in answer.claims
+            ],
+            retrieved_chunk_ids=[hit.provenance.chunk_id for hit in evidence],
+            cited_chunk_ids=list(answer.cited_chunk_ids),
         )
 
     # Resolve cited chunk IDs back to spans. Built from the evidence actually
@@ -251,6 +261,10 @@ async def _save_trace(
     embedding_model: str | None,
     evidence_count: int,
     abstained: bool,
+    answer: str | None = None,
+    claims: list[dict[str, object]] | None = None,
+    retrieved_chunk_ids: list[UUID] | None = None,
+    cited_chunk_ids: list[UUID] | None = None,
 ) -> None:
     await TraceService(session).save(
         record,
@@ -263,6 +277,10 @@ async def _save_trace(
         embedding_model=embedding_model,
         evidence_count=evidence_count,
         abstained=abstained,
+        answer=answer,
+        claims=claims,
+        retrieved_chunk_ids=retrieved_chunk_ids,
+        cited_chunk_ids=cited_chunk_ids,
     )
 
 
