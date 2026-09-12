@@ -16,10 +16,11 @@ from app.schemas.common import APIModel
 
 
 class SearchStrategy(StrEnum):
-    """Which retriever runs. `HYBRID` arrives in Phase 5."""
+    """Which retriever runs."""
 
     SEMANTIC = "semantic"
     KEYWORD = "keyword"
+    HYBRID = "hybrid"
 
 
 class SearchRequest(APIModel):
@@ -52,6 +53,17 @@ class EvidenceItem(APIModel):
     # Populated for keyword retrieval; empty for semantic, where nothing
     # lexical matched at all. That contrast is the point of comparing them.
     matched_terms: list[str] = Field(default_factory=list)
+
+    # --- fusion provenance (spec section 17) -----------------------------
+    # Populated for hybrid retrieval. `retrieval_source` names every arm that
+    # found this chunk, and the per-arm rank and score say what each one
+    # thought of it, so a fused ranking can be explained rather than trusted.
+    retrieval_source: list[str] = Field(default_factory=list)
+    fusion_score: float | None = None
+    semantic_score: float | None = None
+    semantic_rank: int | None = None
+    keyword_score: float | None = None
+    keyword_rank: int | None = None
 
 
 class SearchResponse(APIModel):

@@ -31,6 +31,20 @@ class Provenance:
 
 
 @dataclass(frozen=True, slots=True)
+class RetrieverContribution:
+    """What one retriever contributed to a fused result (spec section 17).
+
+    Keeping the pre-fusion rank and score per retriever is what lets the
+    platform answer "did semantic retrieval miss this, and did keyword recover
+    it?" — the question fusion exists to be judged on.
+    """
+
+    retriever: RetrieverKind
+    rank: int
+    score: float
+
+
+@dataclass(frozen=True, slots=True)
 class RetrievedChunk:
     """A retrieval hit, carrying enough detail to explain *why* it was chosen
     (spec section 17)."""
@@ -44,7 +58,19 @@ class RetrievedChunk:
     # Which query terms actually matched. Empty for semantic retrieval, where
     # nothing lexical matched at all — that distinction is the point.
     matched_terms: tuple[str, ...] = ()
+    # Set by fusion only. `contributions` records every retriever that found
+    # this chunk, with the rank and score it gave, so a fused ranking stays
+    # explainable rather than becoming an opaque number.
+    fusion_score: float | None = None
+    contributions: tuple[RetrieverContribution, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def contribution(self, retriever: RetrieverKind) -> RetrieverContribution | None:
+        """The named retriever's contribution, or None if it did not find this."""
+        for item in self.contributions:
+            if item.retriever is retriever:
+                return item
+        return None
 
 
 @dataclass(frozen=True, slots=True)

@@ -92,10 +92,10 @@ Working today:
 | `POST/GET /api/v1/projects` | full slice through service, ORM and migration |
 | `POST /api/v1/documents/upload` | validate, store, queue (202) |
 | `GET /api/v1/documents[/{id}][/chunks]` | ingestion state and chunk provenance |
-| `POST /api/v1/search` | semantic or keyword retrieval, scored, with provenance |
+| `POST /api/v1/search` | semantic, keyword or hybrid retrieval, scored, with provenance |
 | `alembic upgrade head` | extensions, identity, projects, documents, chunks + HNSW |
 | `arq` worker | ingests PDF, TXT and Markdown, then embeds |
-| `ruff` + `mypy --strict` + `pytest` | 159 tests green (156 without a provider key) |
+| `ruff` + `mypy --strict` + `pytest` | 188 tests green (185 without a provider key) |
 
 Ingestion (Phase 2): upload -> validate -> store -> parse -> chunk. Chunks
 carry page and character offsets, so slicing the source by a chunk's offsets
@@ -111,7 +111,13 @@ score, rank and matched terms. It is named `keyword`, not `bm25`, because
 `app/retrieval/postgres_fts.py` for the measured differences. Keyword search
 needs no provider key and no embeddings.
 
-`POST /search` takes `strategy: semantic | keyword`. Hybrid fusion is Phase 5.
+Hybrid retrieval (Phase 5): both arms run and their rankings are fused with
+Reciprocal Rank Fusion. Every fused hit reports which arms found it and at what
+rank and score (spec section 17), so a ranking can be explained rather than
+trusted.
+
+`POST /search` takes `strategy: semantic | keyword | hybrid`. Reranking is
+Phase 6.
 
 Embedding needs `MISTRAL_API_KEY`. Without it the platform still ingests,
 parses and chunks; documents simply are not dense-retrievable until a key is
