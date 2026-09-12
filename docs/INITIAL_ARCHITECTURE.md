@@ -348,7 +348,73 @@ rather than `0`. Nothing runs them yet — Phase 6 is skipped and verification
 (§21) is unscheduled — and a zero would read as "ran instantly" rather than
 "did not run".
 
-## 13. Missing infrastructure (next phases)
+## 13. What Phase 9 delivered
+
+The evaluation lab (§§26-28, 74) — and with it, answers to the questions
+Phases 4 and 5 left open.
+
+- **Metrics are pure functions** over ranked IDs and a gold set, with no
+  database or provider, and 37 unit tests checking them against hand-computed
+  values rather than against their own behaviour. Every later conclusion rests
+  on these being right.
+- **Undefined is not zero.** An item with no gold chunks has no recall.
+  Averaging a fabricated zero would understate the system under test, so
+  metrics return `null` and every aggregate reports `n`, the number of items
+  that defined it — a recall of 0.9 over 2 of 50 items means something very
+  different from 0.9 over 50.
+- **Per-condition reporting**, because a system that does well on CLEAN says
+  nothing about CONFLICTING or ADVERSARIAL.
+- **Failures are categorised by cause** — `retrieval_miss`, `over_abstention`,
+  `invented_citation`, `unsupported_claim` — ordered most-fundamental first, so
+  a bad score says which stage failed (§36).
+- **Frozen config** on each run, so a run's meaning cannot change because a
+  project default was edited afterwards.
+- **No provider needed** for retrieval metrics; a keyword run measures
+  retrieval quality with no API key at all.
+
+### A reproducibility fix this phase forced
+
+Chunk IDs were random, so re-ingesting a document minted new ones and silently
+invalidated every dataset's gold set. They are now derived deterministically
+from `(document_id, ordinal)` via UUIDv5. Chunking was already deterministic;
+now the IDs are too, and a dataset survives re-ingestion.
+
+### Measured: keyword vs semantic vs hybrid
+
+Real `mistral-embed`, 12-chunk corpus, 10 items, executed through the worker
+queue. Six natural-language questions (CLEAN) and four exact-identifier probes
+(ADVERSARIAL).
+
+| metric | keyword | semantic | hybrid |
+|---|---|---|---|
+| recall@1 | 0.400 | 0.800 | 0.800 |
+| recall@5 | 0.400 | 1.000 | 1.000 |
+| MRR | 0.400 | 0.900 | 0.900 |
+| nDCG@5 | 0.400 | 0.926 | 0.926 |
+
+recall@5 by condition — CLEAN: keyword 0.000 (n=6), semantic 1.000, hybrid
+1.000. ADVERSARIAL: all three 1.000. Failures: keyword 6 x `retrieval_miss`;
+semantic and hybrid none.
+
+Three findings, all contradicting assumptions the spec builds on:
+
+1. **Hybrid is identical to semantic on every metric.** RRF fusion adds
+   nothing measurable here, because the keyword arm contributes no candidate
+   that dense retrieval had not already ranked highly.
+2. **The keyword arm is strictly dominated.** It scores 0.000 on
+   natural-language questions — conjunctive matching returns nothing — and
+   merely ties on identifiers.
+3. **§15B's premise does not hold.** Lexical search is supposed to rescue dense
+   retrieval on exact identifiers, but `mistral-embed` scored 1.000 on the
+   adversarial set unaided.
+
+Scope honestly: 12 chunks and 10 items is small, and dense retrieval is at
+ceiling, which is exactly the regime where fusion has no room to help. The
+finding is that hybrid is *not yet justified*, not that it never could be. The
+corpus size and noise level at which dense starts failing is what Phases 13-14
+exist to find — and the harness to find it now exists.
+
+## 14. Missing infrastructure (next phases)
 
 | Need | Phase |
 |---|---|
@@ -358,6 +424,7 @@ rather than `0`. Nothing runs them yet — Phase 6 is skipped and verification
 | Reranker implementation | when a rerank model or cross-encoder is available |
 | Live generation verification | when chat quota is enabled on the key |
 | Verification layer (§21) | unscheduled; `TraceStage.VERIFICATION` reserved |
+| LLM-judge metrics (faithfulness, answer correctness) | blocked on chat quota |
 | SSE streaming (§45) | carries the trace spans Phase 8 now records |
 | BM25 / Postgres FTS index | 4 |
 | Model provider adapters and registry | 7 |

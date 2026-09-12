@@ -11,7 +11,7 @@ import hashlib
 import io
 import mimetypes
 from typing import BinaryIO
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +37,18 @@ from core.storage.base import ObjectStorage
 logger = get_logger(__name__)
 
 _READ_BLOCK_BYTES = 1024 * 1024
+
+
+def chunk_id_for(document_id: UUID, ordinal: int) -> UUID:
+    """Derive a chunk's ID from its document and position.
+
+    Deterministic on purpose. Chunking is reproducible, so re-ingesting a
+    document must reproduce the same chunk IDs — otherwise every evaluation
+    dataset's gold set silently points at chunks that no longer exist, and a
+    benchmark stops being reproducible (spec principle 2).
+    """
+    return uuid5(NAMESPACE_URL, f"aelab:chunk:{document_id}:{ordinal}")
+
 
 # Browsers report these inconsistently, so resolve them by extension.
 _EXTENSION_MIME_TYPES = {
@@ -197,6 +209,7 @@ class IngestionService(Service):
             self.session.add_all(
                 [
                     Chunk(
+                        id=chunk_id_for(document.id, chunk.ordinal),
                         document_id=document.id,
                         ordinal=chunk.ordinal,
                         text=chunk.text,

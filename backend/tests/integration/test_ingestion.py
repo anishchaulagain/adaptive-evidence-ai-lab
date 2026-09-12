@@ -398,3 +398,43 @@ async def test_a_job_for_a_deleted_document_is_terminal(
     await _delete_project(project_id)
 
     await _run_worker(settings, document_id)
+
+
+async def test_chunk_ids_are_stable_across_re_ingestion(
+    client: AsyncClient, project_id: UUID, settings: Settings
+) -> None:
+    """Gold sets in evaluation datasets reference chunk IDs. If re-ingesting a
+    document minted new IDs, every dataset would silently break and benchmarks
+    would stop being reproducible."""
+    body = await _upload(
+        client,
+        project_id,
+        content=b"First paragraph.\n\nSecond paragraph.",
+        filename="stable.txt",
+        content_type="text/plain",
+    )
+    document_id = UUID(str(body["id"]))
+
+    await _run_worker(settings, document_id)
+    first = [
+        chunk["id"]
+        for chunk in (
+            await client.get(
+                f"/api/v1/documents/{document_id}/chunks",
+                params={"project_id": str(project_id)},
+            )
+        ).json()
+    ]
+
+    await _run_worker(settings, document_id)
+    second = [
+        chunk["id"]
+        for chunk in (
+            await client.get(
+                f"/api/v1/documents/{document_id}/chunks",
+                params={"project_id": str(project_id)},
+            )
+        ).json()
+    ]
+
+    assert first == second

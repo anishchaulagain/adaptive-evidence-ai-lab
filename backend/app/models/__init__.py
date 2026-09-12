@@ -8,14 +8,14 @@ Registered:
     Organization, User, Project        (Phase 1)
     Document, Chunk                   (Phase 2)
     Trace, TraceSpan                  (Phase 8)
+    EvaluationDataset, EvaluationItem,
+    EvaluationRun, EvaluationResult   (Phase 9)
 
 Pending — modules exist under `app/models/` but are deliberately not imported:
     DataSource                         (when connectors land; direct
                                         uploads carry no source)
     ModelConfig                        (Phase 7 — generation)
     Query                              (folded into Trace; see app/models/trace.py)
-    EvaluationDataset, EvaluationItem,
-    EvaluationRun, EvaluationResult    (Phase 9 — evaluation)
     Experiment, ExperimentRun          (Phase 14 — experiments)
     BenchmarkRun                       (Phase 13 — AE-Bench)
     MetricRecord                       (Phase 10 — metrics)
@@ -24,6 +24,12 @@ Pending — modules exist under `app/models/` but are deliberately not imported:
 from app.db.base import Base
 from app.models.chunk import Chunk
 from app.models.document import Document, IngestionStatus
+from app.models.evaluation import (
+    EvaluationDataset,
+    EvaluationItem,
+    EvaluationResult,
+    EvaluationRun,
+)
 from app.models.project import Project
 from app.models.trace import Trace, TraceSpan
 from app.models.user import Organization, User
@@ -32,6 +38,10 @@ __all__ = [
     "Base",
     "Chunk",
     "Document",
+    "EvaluationDataset",
+    "EvaluationItem",
+    "EvaluationResult",
+    "EvaluationRun",
     "IngestionStatus",
     "Organization",
     "Project",
